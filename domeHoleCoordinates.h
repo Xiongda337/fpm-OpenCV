@@ -1,4 +1,4 @@
-static double domeHoleCoordinates[508][3] = {
+static float domeHoleCoordinates[508][3] = {
     /*  1*/ {-0.0398, -0.0050, 0.0446},
     /*  2*/ {-0.0398, -0.0017, 0.0448},
     /*  3*/ {-0.0398, 0.0017, 0.0448},
