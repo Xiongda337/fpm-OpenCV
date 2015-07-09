@@ -27,6 +27,9 @@ bool preprocessDebug = false;
 class FPMimg{
   public:
         cv::Mat Image;
+        cv::Mat ObjfcropP;
+        cv::Mat ObjcropP;
+        cv::Mat Objfup;
         int led_num;
         float sinTheta_x;
         float sinTheta_y;
@@ -42,6 +45,7 @@ class FPMimg{
         int16_t cropYEnd;
         int16_t cropXStart;
         int16_t cropXEnd;
+        
 };
 
 class FPM_Dataset{
@@ -89,6 +93,8 @@ class FPM_Dataset{
         cv::Mat               objFCrop;                 // Reconstructed object, Fourier space, cropped
         cv::Mat               pupil;                     // Reconstructed pupil, Fourier Space
         int16_t               itrCount = 20;            // Iteration Count
+        
+        float                 eps = 0.0000000001;
 };
 
 /*/Check if file exists
@@ -309,6 +315,10 @@ int loadDataset(FPM_Dataset *dataset) {
 
 void run(FPM_Dataset * dataset)
 {
+  
+   // Make dummy pointers to save space
+   Mat * objF = &dataset->objF;
+   
    // Initialize FT of reconstructed object with center led image
    Mat complexI;
    Mat planes[] = {Mat_<float>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image), Mat::zeros(dataset->Np,dataset->Np, CV_32F)};
@@ -325,7 +335,6 @@ void run(FPM_Dataset * dataset)
    //circle(Mat& img, Point center, int radius, const Scalar& color, int thickness=1, int lineType=8, int shift=0)
    cv::circle(planes[0], center, naRadius ,cv::Scalar(1.0), -1, 8, 0);
    
-   
    Mat tmp;
    // FFTshift the pupil so it is consistant with object FT
    circularShift(planes[0], planes[0], round(planes[0].rows/2), round(planes[0].cols/2));
@@ -333,6 +342,43 @@ void run(FPM_Dataset * dataset)
    
    //showImg(planes[0]);
    //showImg(planes[1]);
+   
+   for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
+   {
+      for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++)
+      {
+      int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
+      cout<<ledNum<<endl;
+      
+      FPMimg * currImg;
+      currImg = & dataset->imageStack.at(ledNum);
+      /*
+        cv::Mat ObjfcropP;
+        cv::Mat ObjcropP;
+        cv::Mat Objfup;
+      */
+      
+      cv::multiply(dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)),dataset->pupil, currImg->ObjfcropP);
+      dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE); // ifft
+      
+      Mat tmpMat;
+      currImg->Image.convertTo(tmpMat,CV_32FC1);
+      planes[0] = tmpMat;
+      planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_32F);
+      cv::merge(planes,2,tmpMat);
+      cv::sqrt(tmpMat,tmpMat);
+      cv::multiply(tmpMat,currImg->ObjcropP,tmpMat);
+      cv::divide(tmpMat,cv::abs(currImg->ObjcropP+dataset->eps),tmpMat);
+      dft(tmpMat,currImg->Objfup);
+     // currImg->ObjcropP;
+      //currImg->Objfup;
+      
+      
+      
+      
+      
+      } 
+   }
    
 }
 
