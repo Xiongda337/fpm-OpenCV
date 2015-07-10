@@ -9,8 +9,8 @@ fpmMain.cpp
 #include <stdio.h>
 #include <dirent.h>
 #include <fstream>
-//#include <list>
-#include<vector>
+#include <vector>
+
 //#include "include/rapidjson"
 #include "domeHoleCoordinates.h"
 
@@ -21,6 +21,8 @@ using namespace cv;
 #define FILE_HOLENUM_DIGITS 4
 
 string filePrefix = "iLED_";
+
+using CP = std::complex<float>;
 
 bool preprocessDebug = false;
 
@@ -141,27 +143,26 @@ void circularShift(Mat img, Mat result, int x, int y){
     cv::Rect gate1(0, 0, w-shiftR, h-shiftD);//rect(x, y, width, height)
     cv::Rect out1(shiftR, shiftD, w-shiftR, h-shiftD);
     
-	  cv::Rect gate2(w-shiftR, 0, shiftR, h-shiftD); 
-	  cv::Rect out2(0, shiftD, shiftR, h-shiftD);
+    cv::Rect gate2(w-shiftR, 0, shiftR, h-shiftD); 
+    cv::Rect out2(0, shiftD, shiftR, h-shiftD);
     
-	  cv::Rect gate3(0, h-shiftD, w-shiftR, shiftD);
-	  cv::Rect out3(shiftR, 0, w-shiftR, shiftD);
+    cv::Rect gate3(0, h-shiftD, w-shiftR, shiftD);
+    cv::Rect out3(shiftR, 0, w-shiftR, shiftD);
     
-	  cv::Rect gate4(w-shiftR, h-shiftD, shiftR, shiftD);
-	  cv::Rect out4(0, 0, shiftR, shiftD);
+    cv::Rect gate4(w-shiftR, h-shiftD, shiftR, shiftD);
+    cv::Rect out4(0, 0, shiftR, shiftD);
    
     cv::Mat shift1 = img ( gate1 );
     cv::Mat shift2 = img ( gate2 );
     cv::Mat shift3 = img ( gate3 );
     cv::Mat shift4 = img ( gate4 );
 
-	  shift1.copyTo(cv::Mat(result, out1));//copyTo will fail if any rect dimension is 0
-	  if(shiftR != 0)
-        shift2.copyTo(cv::Mat(result, out2));
-	  if(shiftD != 0)
-    	  shift3.copyTo(cv::Mat(result, out3));
-	  if(shiftD != 0 && shiftR != 0)
-    	  shift4.copyTo(cv::Mat(result, out4));
+    shift1.copyTo(cv::Mat(result, out1));//copyTo will fail if any rect dimension is 0
+    shift2.copyTo(cv::Mat(result, out2));
+    shift3.copyTo(cv::Mat(result, out3));
+    shift4.copyTo(cv::Mat(result, out4));
+    
+    
 
 }
 
@@ -311,11 +312,111 @@ int loadDataset(FPM_Dataset *dataset) {
 	}
 }
 
+void complexInverse(const cv::Mat& m, cv::Mat& inverse)
+{
+    //std::cout<< "Starting Inversion..." << std::endl;
+    cv::Mat twiceM = cv::Mat(m.rows * 2, m.cols * 2,CV_32FC1);
 
+    std::vector<cv::Mat> comp;
+    cv::split(m,comp);
+
+    cv::Mat real = comp[0];
+    cv::Mat imag = comp[1];
+
+    for(int i=0; i<m.rows; i++)
+    {
+        for(int j=0; j<m.cols; j++)
+        {
+            twiceM.at<float>(i,j) = real.at<float>(i,j);
+            twiceM.at<float>(i,j + m.cols) = imag.at<float>(i,j);
+            twiceM.at<float>(i + m.rows,j) = -imag.at<float>(i,j);
+            twiceM.at<float>(i + m.rows,j + m.cols) = real.at<float>(i,j);
+        }
+    }
+
+    cv::Mat twiceInv;
+    cv::invert(twiceM,twiceInv);
+
+    inverse = cv::Mat(m.cols,m.rows,m.type());
+
+    for(int i=0; i<inverse.rows; i++)
+    {
+        for(int j=0; j<inverse.cols; j++)
+        {
+            float re = twiceInv.at<float>(i,j);
+            float im = twiceInv.at<float>(i,j + inverse.cols);
+            cv::Vec2f val(re,im);
+            inverse.at<cv::Vec2f>(i,j) = val;
+        }
+    }
+    //std::cout<< "Inversion Done!" << std::endl;
+}
+
+void complexConj(const cv::Mat& m, cv::Mat& output)
+{
+    Mat planes[] = {Mat::zeros(m.rows, m.cols, CV_32F),Mat::zeros(m.rows, m.cols, CV_32F)};
+    cv::split(m, planes);
+    planes[1] = -1.0 * planes[1];
+    cv::merge(planes, 2, output);
+}
+
+void complexAbs(const cv::Mat& m, cv::Mat& output)
+{
+    Mat planes[] = {Mat::zeros(m.rows, m.cols, CV_32F),Mat::zeros(m.rows, m.cols, CV_32F)};
+    cv::pow(m,2,m);
+    cv::split(m,planes);
+    cv::sqrt(planes[0]+planes[1], output);
+}
+
+void complexMultiply(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
+{
+   Mat outputPlanes[] = {Mat::zeros(m1.rows, m1.cols, CV_32F),Mat::zeros(m1.rows, m1.cols, CV_32F)};
+   Mat tmpMat;
+   std::vector<cv::Mat> comp1;
+   std::vector<cv::Mat> comp2;
+   cv::split(m1,comp1);
+   cv::split(m2,comp2);
+   
+   // (a+bi) * (c+di) = ac - bd + (ad+bc) * i
+   // Real Part
+   cv::multiply(comp1[0], comp2[0], tmpMat);
+   outputPlanes[0] = tmpMat;
+   cv::multiply(comp1[1], comp2[1], tmpMat);
+   outputPlanes[0] = outputPlanes[0] - tmpMat;
+   
+   // Imaginary Part
+   cv::multiply(comp1[0], comp2[1], tmpMat);
+   outputPlanes[0] = tmpMat;
+   cv::multiply(comp1[1], comp2[0], tmpMat);
+   outputPlanes[1] = outputPlanes[1] + tmpMat;
+   
+   merge(outputPlanes,2,output);
+}
+
+void complexDivide(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
+{
+   Mat inverse;
+   complexInverse(m2,inverse);
+   complexMultiply(m1, inverse, output);
+}
+
+
+cv::Mat fftShift(cv::Mat m)
+{
+      cv::Mat shifted = cv::Mat(m.cols,m.rows,m.type());
+      circularShift(m, shifted, round(m.cols/2), round(m.rows/2));
+      return shifted;
+}
+
+cv::Mat ifftShift(cv::Mat m)
+{
+      cv::Mat shifted = cv::Mat(m.cols,m.rows,m.type());
+      circularShift(m, shifted, round(m.cols/-2), round(m.rows/-2));
+      return shifted;
+}
 
 void run(FPM_Dataset * dataset)
 {
-  
    // Make dummy pointers to save space
    Mat * objF = &dataset->objF;
    
@@ -336,19 +437,19 @@ void run(FPM_Dataset * dataset)
    cv::circle(planes[0], center, naRadius ,cv::Scalar(1.0), -1, 8, 0);
    
    Mat tmp;
-   // FFTshift the pupil so it is consistant with object FT
-   circularShift(planes[0], planes[0], round(planes[0].rows/2), round(planes[0].cols/2));
-   merge(planes, 2, dataset->pupil);
-   
+   // FFTshift the pupil so it is consistant with object FT   
    //showImg(planes[0]);
-   //showImg(planes[1]);
+   tmp = fftShift(planes[0]);
+   planes[0] = tmp;
+   //showImg(tmp);
+   merge(planes, 2, dataset->pupil);
    
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
       for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++)
       {
       int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
-      cout<<ledNum<<endl;
+      //cout<<ledNum<<endl;
       
       FPMimg * currImg;
       currImg = & dataset->imageStack.at(ledNum);
@@ -358,28 +459,57 @@ void run(FPM_Dataset * dataset)
         cv::Mat Objfup;
       */
       
-      cv::multiply(dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)),dataset->pupil, currImg->ObjfcropP);
+     complexMultiply(dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)), dataset->pupil, currImg->ObjfcropP);
+      
       dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE); // ifft
       
       Mat tmpMat;
+      Mat tmpMat2;
       currImg->Image.convertTo(tmpMat,CV_32FC1);
       planes[0] = tmpMat;
       planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_32F);
       cv::merge(planes,2,tmpMat);
-      cv::sqrt(tmpMat,tmpMat);
-      cv::multiply(tmpMat,currImg->ObjcropP,tmpMat);
-      cv::divide(tmpMat,cv::abs(currImg->ObjcropP+dataset->eps),tmpMat);
+      cv::sqrt(tmpMat,tmpMat); // Works because this is real-values (complex portion is zero)
+      
+      //cv::mulSpectrums(tmpMat,currImg->ObjcropP,tmpMat,0,false); // Complex Matrix multiplication
+      complexMultiply(tmpMat,currImg->ObjcropP,tmpMat);
+      complexInverse(cv::abs(currImg->ObjcropP+dataset->eps), tmpMat2); // Invert to make the next line a division
+      
+      cv::mulSpectrums(tmpMat,tmpMat2,tmpMat,0,false); // Complex Matrix multiplication
       dft(tmpMat,currImg->Objfup);
+      
      // currImg->ObjcropP;
       //currImg->Objfup;
       
+      // Alternating Projection Method
       
+      // Absolute Value of Pupil
+      Mat pupilAbs;
+      complexAbs(dataset->pupil,pupilAbs);
       
+      // Get max of pupil
+      double q, pupilMax;
+      cv::minMaxLoc(pupilAbs, &q, &pupilMax);
       
+      // showImg(pupilAbs); // Works
       
+      //cv::mulSpectrums(complexAbs(dataset->pupil),complexConj(dataset->pupil),tmpMat,0,false); // Complex Matrix multiplication
+      Mat pupilConj;
+      complexConj(dataset->pupil, pupilConj);
+      
+       
+      //cv::split(pupilConj, planes);
+      //showImg(planes[1]);
+
+      complexMultiply(pupilAbs, pupilConj, tmpMat);
+      complexInverse(cv::abs(currImg->ObjcropP+dataset->eps), tmpMat2);
+      
+      // Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);      
+      
+      // Pupil = Pupil + abs(Objfcrop).*conj(Objfcrop).*(Objfup-ObjfcropP)/max(abs(Objf(:)))./(abs(Objfcrop).^2+delta1).*Pupilsupport;
+      cout<<"Iteration"<<endl;
       } 
-   }
-   
+   }  
 }
 
 int main(int argc, char** argv )
