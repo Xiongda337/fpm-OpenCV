@@ -312,6 +312,7 @@ int loadDataset(FPM_Dataset *dataset) {
 	}
 }
 
+/*
 void complexInverse(const cv::Mat& m, cv::Mat& inverse)
 {
     //std::cout<< "Starting Inversion..." << std::endl;
@@ -350,6 +351,10 @@ void complexInverse(const cv::Mat& m, cv::Mat& inverse)
         }
     }
     //std::cout<< "Inversion Done!" << std::endl;
+}*/
+void complexInverse(const cv::Mat& m, cv::Mat& inverse)
+{
+   cv::divide(1.0,m,inverse);
 }
 
 void complexConj(const cv::Mat& m, cv::Mat& output)
@@ -371,7 +376,7 @@ void complexAbs(const cv::Mat& m, cv::Mat& output)
 void complexMultiply(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
 {
    Mat outputPlanes[] = {Mat::zeros(m1.rows, m1.cols, CV_32F),Mat::zeros(m1.rows, m1.cols, CV_32F)};
-   Mat tmpMat;
+   Mat tmpMat(m1.rows,m1.cols,m1.type());
    std::vector<cv::Mat> comp1;
    std::vector<cv::Mat> comp2;
    cv::split(m1,comp1);
@@ -380,13 +385,14 @@ void complexMultiply(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
    // (a+bi) * (c+di) = ac - bd + (ad+bc) * i
    // Real Part
    cv::multiply(comp1[0], comp2[0], tmpMat);
-   outputPlanes[0] = tmpMat;
+   outputPlanes[0] = tmpMat.clone();
+
    cv::multiply(comp1[1], comp2[1], tmpMat);
    outputPlanes[0] = outputPlanes[0] - tmpMat;
    
    // Imaginary Part
    cv::multiply(comp1[0], comp2[1], tmpMat);
-   outputPlanes[0] = tmpMat;
+   outputPlanes[1] = tmpMat.clone();
    cv::multiply(comp1[1], comp2[0], tmpMat);
    outputPlanes[1] = outputPlanes[1] + tmpMat;
    
@@ -560,6 +566,33 @@ int main(int argc, char** argv )
    mDataset.ps = mDataset.ps_eff / (float)resImprovementFactor;
    mDataset.delta1 = 1000;
    mDataset.delta2 = 5;
+   
+   
+   /* TESTING COMPLEX MAT FUNCTIONS
+   Mat testMat1;
+   Mat testMat2;
+   
+   Mat test1[] = {Mat::ones(3, 3, CV_32F)*1,Mat::ones(3, 3, CV_32F)*2};
+   Mat test2[] = {Mat::ones(3, 3, CV_32F)*3,Mat::ones(3, 3, CV_32F)*4};
+   
+   
+   Mat test3[] = {Mat::ones(3, 3, CV_32F)*0,Mat::ones(3, 3, CV_32F)*0};
+   cv::merge(test1,2,testMat1);
+   cv::merge(test2,2,testMat2);
+   
+   Mat outputMat;
+   
+   //complexDivide(testMat1,testMat2,outputMat);
+   complexConj(testMat1,outputMat);
+   
+   cv::split(outputMat,test3);
+   cv::split(testMat2,test2);
+   
+   cout << "Input 1 (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
+   cout << "Input 2 (real) = " << endl << " "  << test2[0] << ",   (imag) = " << endl << " "  << test2[1] << endl << endl;
+   cout << "Output (real) = " << endl << " "  << test3[0] <<",   (imag) = " << endl << " "  << test3[1] << endl << endl;
+   
+   */
    
    loadDataset(&mDataset);
    
