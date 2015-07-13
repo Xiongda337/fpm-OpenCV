@@ -29,6 +29,7 @@ bool preprocessDebug = false;
 class FPMimg{
   public:
         cv::Mat Image;
+        cv::Mat Objfcrop;
         cv::Mat ObjfcropP;
         cv::Mat ObjcropP;
         cv::Mat Objfup;
@@ -365,12 +366,15 @@ void complexConj(const cv::Mat& m, cv::Mat& output)
     cv::merge(planes, 2, output);
 }
 
+// Returns the absolute value of a complex-valued matrix (channel 1 = abs, channel 2 = zeros)
 void complexAbs(const cv::Mat& m, cv::Mat& output)
 {
     Mat planes[] = {Mat::zeros(m.rows, m.cols, CV_32F),Mat::zeros(m.rows, m.cols, CV_32F)};
     cv::pow(m,2,m);
     cv::split(m,planes);
-    cv::sqrt(planes[0]+planes[1], output);
+    cv::sqrt(planes[0]+planes[1], planes[0]);
+    planes[1] = Mat::zeros(m.rows, m.cols, CV_32F);
+    cv::merge(planes,2,output);
 }
 
 void complexMultiply(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
@@ -405,7 +409,6 @@ void complexDivide(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
    complexInverse(m2,inverse);
    complexMultiply(m1, inverse, output);
 }
-
 
 cv::Mat fftShift(cv::Mat m)
 {
@@ -450,6 +453,17 @@ void run(FPM_Dataset * dataset)
    //showImg(tmp);
    merge(planes, 2, dataset->pupil);
    
+   // Initilize Matricies
+   Mat tmpMat1;
+   Mat tmpMat2;
+   Mat tmpMat3;
+   Mat pupilAbs;
+   Mat pupilConj;
+   double q, pupilMax;
+   double p, objf_max;
+   Mat objfcrop_abs;
+   Mat objfcrop_conj;
+   
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
       for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++)
@@ -464,57 +478,89 @@ void run(FPM_Dataset * dataset)
         cv::Mat ObjcropP;
         cv::Mat Objfup;
       */
+     
+     // Update Fourier space, multply by pupil (P * O)
+     currImg->Objfcrop = dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np));
+     complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
       
-     complexMultiply(dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)), dataset->pupil, currImg->ObjfcropP);
+      dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE); // Real-space of object
       
-      dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE); // ifft
-      
-      Mat tmpMat;
-      Mat tmpMat2;
-      currImg->Image.convertTo(tmpMat,CV_32FC1);
-      planes[0] = tmpMat;
+      // Replace Amplitude portion
+      currImg->Image.convertTo(tmpMat1,CV_32FC1);
+      planes[0] = tmpMat1;
       planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_32F);
-      cv::merge(planes,2,tmpMat);
-      cv::sqrt(tmpMat,tmpMat); // Works because this is real-values (complex portion is zero)
+      cv::merge(planes,2,tmpMat1);
+      cv::sqrt(tmpMat1,tmpMat1); // Works because tmpMat is real-valued (complex portion is zero)
+      complexMultiply(tmpMat1,currImg->ObjcropP,tmpMat2); //
+      tmpMat3 = tmpMat2.clone(); // Initializes tmpMat3
+      complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
+      complexDivide(tmpMat2, tmpMat3, tmpMat1); // Invert to make the next line a division
+      dft(tmpMat1,currImg->Objfup);
       
-      //cv::mulSpectrums(tmpMat,currImg->ObjcropP,tmpMat,0,false); // Complex Matrix multiplication
-      complexMultiply(tmpMat,currImg->ObjcropP,tmpMat);
-      complexInverse(cv::abs(currImg->ObjcropP+dataset->eps), tmpMat2); // Invert to make the next line a division
-      
-      cv::mulSpectrums(tmpMat,tmpMat2,tmpMat,0,false); // Complex Matrix multiplication
-      dft(tmpMat,currImg->Objfup);
-      
-     // currImg->ObjcropP;
-      //currImg->Objfup;
-      
-      // Alternating Projection Method
+      ///////// Alternating Projection Method - Object ///////////
+      // MATLAB: Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);
       
       // Absolute Value of Pupil
-      Mat pupilAbs;
+
       complexAbs(dataset->pupil,pupilAbs);
       
       // Get max of pupil
-      double q, pupilMax;
       cv::minMaxLoc(pupilAbs, &q, &pupilMax);
       
-      // showImg(pupilAbs); // Works
-      
-      //cv::mulSpectrums(complexAbs(dataset->pupil),complexConj(dataset->pupil),tmpMat,0,false); // Complex Matrix multiplication
-      Mat pupilConj;
+      // Get complex conj of pupil
       complexConj(dataset->pupil, pupilConj);
-      
-       
-      //cv::split(pupilConj, planes);
-      //showImg(planes[1]);
 
-      complexMultiply(pupilAbs, pupilConj, tmpMat);
-      complexInverse(cv::abs(currImg->ObjcropP+dataset->eps), tmpMat2);
+      complexMultiply(pupilAbs, pupilConj, tmpMat1);
+      complexMultiply(tmpMat1, currImg->Objfup - currImg->ObjfcropP, tmpMat2); // This is the numerator of the update function
       
-      // Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);      
+      complexMultiply(pupilAbs,pupilAbs, tmpMat3); // Pupil Magnitude Squared
+      
+      // Update incriment for object
+      complexDivide(tmpMat2, pupilMax * (tmpMat3 + dataset->delta2), tmpMat1);
+      
+      // Update fourier space of object
+      dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)) = dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)) + tmpMat1;
+      
+      /////// Alternating Projection Method - Pupil ///////////
+      //  MATLAB:  Pupil = Pupil + abs(Objfcrop).*conj(Objfcrop).*(Objfup-ObjfcropP)/max(abs(Objf(:)))./(abs(Objfcrop).^2+delta1).*Pupilsupport;
+            
+      // Absolute Value of Object
+      complexAbs(currImg->Objfcrop, objfcrop_abs);
+      
+      // Get max of object
+   
+      cv::minMaxLoc(objfcrop_abs, &p, &objf_max);
+      
+      // Get complex conj of object
+
+      complexConj(currImg->Objfcrop, objfcrop_conj);
+
+      complexMultiply(objfcrop_abs, objfcrop_conj, tmpMat1);
+      complexMultiply(tmpMat1, currImg->Objfup - currImg->ObjfcropP, tmpMat2); // This is the numerator of the update function
+      
+      complexMultiply(objfcrop_abs, objfcrop_abs, tmpMat3); // Object Magnitude Squared
+      
+      // Update incriment for pupil
+      complexDivide(tmpMat2, objf_max * (tmpMat3 + dataset->delta2), tmpMat1);
+      
+      // Update fourier space of pupil
+      dataset->pupil = dataset->pupil + tmpMat1;
       
       // Pupil = Pupil + abs(Objfcrop).*conj(Objfcrop).*(Objfup-ObjfcropP)/max(abs(Objf(:)))./(abs(Objfcrop).^2+delta1).*Pupilsupport;
-      cout<<"Iteration"<<endl;
-      } 
+      }
+      cout<<"Iteration " << itr << " Completed!" <<endl;
+      dft(dataset->objF ,dataset->objCrop, DFT_INVERSE);
+      split(dataset->objCrop, planes);                   // planes[0] = Re(DFT(I), planes[1] = Im(DFT(I))
+      magnitude(planes[0], planes[1], planes[0]);// planes[0] = magnitude
+      Mat magI = planes[0];
+
+      magI += Scalar::all(1);                    // switch to logarithmic scale
+      log(magI, magI);
+
+       // crop the spectrum, if it has an odd number of rows or columns
+      magI = magI(Rect(0, 0, magI.cols & -2, magI.rows & -2));
+      
+      showImg(magI);
    }  
 }
 
