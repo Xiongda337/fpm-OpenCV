@@ -619,7 +619,7 @@ void run(FPM_Dataset * dataset)
       //maxComplexReal(currImg->Objfup ,"currImg->Objfup");
       //maxComplexReal(currImg->ObjfcropP ,"currImg->ObjfcropP");
       Mat tmp = currImg->Objfup - currImg->ObjfcropP;
-      showImgMag(tmp,"Data and value difference");
+      //showImgMag(tmp,"Data and value difference");
       //showImgMag(tmpMat1,"tmpMat1");
       //maxComplexReal(tmpMat1,"difference");
       complexMultiply(tmpMat1, tmp, tmpMat2); // This is the numerator of the update function

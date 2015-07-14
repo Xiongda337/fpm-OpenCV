@@ -680,6 +680,8 @@ void run(FPM_Dataset * dataset)
       // Get max of object
       cv::minMaxLoc(objfcrop_abs, &p, &objf_max);
       
+      cout << objf_max <<endl;
+      
       // Get complex conj of object
 
       complexConj(currImg->Objfcrop, objfcrop_conj);
@@ -691,7 +693,7 @@ void run(FPM_Dataset * dataset)
       {
          showImgMag(tmpMat1,"Object Conj and abs product");
          showImgMag(currImg->Objfup - currImg->ObjfcropP,"Update difference");
-         }
+      }
       complexMultiply(tmpMat1, (currImg->Objfup - currImg->ObjfcropP), tmpMat2); // This is the numerator of the update function
       
       /*
