@@ -24,9 +24,9 @@ string filePrefix = "iLED_";
 
 using CP = std::complex<float>;
 
+// Debug flags
 bool preprocessDebug = false;
 bool runDebug = false;
-int16_t debugPxVal = 40;
 
 class FPMimg{
   public:
@@ -98,7 +98,7 @@ class FPM_Dataset{
         cv::Mat               objFCrop;                 // Reconstructed object, Fourier space, cropped
         cv::Mat               pupil;                     // Reconstructed pupil, Fourier Space
         cv::Mat               pupilSupport;             // Binary mask for pupil support, Fourier space
-        int16_t               itrCount = 20;            // Iteration Count
+        int16_t               itrCount = 5;            // Iteration Count
         
         float                 eps = 0.0000000001;
 };
@@ -316,11 +316,6 @@ int loadDataset(FPM_Dataset *dataset) {
 	}
 }
 
-void complexInverse(const cv::Mat& m, cv::Mat& inverse)
-{
-   cv::divide(1.0,m,inverse);
-}
-
 void complexConj(const cv::Mat& m, cv::Mat& output)
 {
     Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
@@ -332,10 +327,10 @@ void complexConj(const cv::Mat& m, cv::Mat& output)
 // Returns the absolute value of a complex-valued matrix (channel 1 = abs, channel 2 = zeros)
 void complexAbs(const cv::Mat& m, cv::Mat& output)
 {
-    Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, CV_64F)};
-    cv::pow(m,2,m);
-    cv::split(m,planes);
-    cv::sqrt(planes[0]+planes[1], planes[0]);
+    Mat planes[] = {Mat::zeros(m.rows, m.cols, CV_64F),Mat::zeros(m.rows, m.cols, CV_64F)};
+    cv::pow(m,2,output);
+    cv::split(output,planes);
+    cv::sqrt(planes[0] + planes[1], planes[0]);
     planes[1] = Mat::zeros(m.rows, m.cols, CV_64F);
     cv::merge(planes,2,output);
 }
@@ -366,11 +361,57 @@ void complexMultiply(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
    merge(outputPlanes,2,output);
 }
 
+void complexScalarMultiply(double scaler, cv::Mat& m, cv::Mat output)
+{
+   Mat inputPlanes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, CV_64F)};
+   Mat outputPlanes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, CV_64F)};
+   cv::split(m,inputPlanes);
+   outputPlanes[0] = scaler * inputPlanes[0];
+   outputPlanes[1] = scaler * inputPlanes[1];
+   merge(outputPlanes,2,output);
+}
+
 void complexDivide(const cv::Mat& m1, const cv::Mat& m2, cv::Mat& output)
 {
-   Mat inverse;
-   complexInverse(m2,inverse);
-   complexMultiply(m1, inverse, output);
+   Mat outputPlanes[] = {Mat::zeros(m1.rows, m1.cols, m1.type()),Mat::zeros(m1.rows, m1.cols, CV_64F)};
+   Mat numerator(m1.rows,m1.cols,CV_64F);
+   Mat denominator(m1.rows,m1.cols,CV_64F);
+   Mat tmpMat(m1.rows,m1.cols,CV_64F); Mat tmpMat2(m1.rows,m1.cols,CV_64F);
+   
+   std::vector<cv::Mat> comp1;
+   std::vector<cv::Mat> comp2;
+   cv::split(m1,comp1);
+   cv::split(m2,comp2);
+   
+   // (a+bi) / (c+di) = (ac+bd) / (c^2+d^2) + (bc-ad) / (c^2+d^2) * i
+   
+   // Real Part
+   cv::multiply(comp1[0], comp2[0],tmpMat);       // ac
+   cv::multiply(comp1[1], comp2[1], tmpMat2);     // bd
+   numerator = tmpMat + tmpMat2;                  // ac+bd
+   
+   cv::multiply(comp2[0], comp2[0],tmpMat);       // c^2
+   cv::multiply(comp2[1], comp2[1], tmpMat2);     // d^2
+   denominator = tmpMat + tmpMat2;                  // c^2+d^2
+   
+   cv::divide(numerator, denominator , outputPlanes[0]); // (ac+bd) / (c^2+d^2) 
+   
+   // Imaginary Part
+   cv::multiply(comp1[1], comp2[0],tmpMat);       // bc
+   cv::multiply(comp1[0], comp2[1], tmpMat2);     // ad
+   numerator = tmpMat - tmpMat2;                  // bc-ad
+   
+   // Same denominator
+   cv::divide(numerator, denominator , outputPlanes[1]); // (ac+bd) / (c^2+d^2) 
+   
+   merge(outputPlanes,2,output);
+}
+
+// Perform matrix inverse
+void complexInverse(const cv::Mat& m, cv::Mat& inverse)
+{
+   Mat one1 = Mat::ones(m.rows,m.cols,m.type());
+   complexDivide(one1, m ,inverse);
 }
 
 cv::Mat fftShift(cv::Mat m)
@@ -387,14 +428,16 @@ cv::Mat ifftShift(cv::Mat m)
       return shifted;
 }
 
-void showImg(Mat img, string windowTitle)
+// Opencv fft implimentation
+void fft2(cv::Mat& input, cv::Mat& output)
 {
-   Mat imgN;
-   normalize(img, imgN, 0, 1, CV_MINMAX);
-   namedWindow(windowTitle, WINDOW_NORMAL);
-   //setMouseCallback( windowTitle, onMouse, &img );
-   imshow(windowTitle, imgN);
-   waitKey();
+   cv::dft(input, output , DFT_SCALE | DFT_COMPLEX_OUTPUT);
+}
+
+// Opencv ifft implimentation
+void ifft2(cv::Mat& input, cv::Mat& output)
+{
+   cv::dft(input, output, DFT_INVERSE | DFT_SCALE); // Real-space of object
 }
 
 void complex_imwrite(string fname, Mat& m1)
@@ -450,9 +493,9 @@ void onMouse( int event, int x, int y, int, void* param )
 
 void showImgMag(Mat m, string windowTitle)
 {
-   cv::destroyAllWindows();
+
    Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
-   cv::Mat m2 = m;// fftShift(m);
+   cv::Mat m2 = fftShift(m);
    split(m2, planes);                   // planes[0] = Re(DFT(I), planes[1] = Im(DFT(I))
    magnitude(planes[0], planes[1], planes[0]);// planes[0] = magnitude
    Mat magI = planes[0];
@@ -467,6 +510,7 @@ void showImgMag(Mat m, string windowTitle)
    setMouseCallback(windowTitle, onMouse, &m2);
    imshow(windowTitle, magI);
    waitKey();
+   cv::destroyAllWindows();
 }
 
 void printComplexPixelValue(cv::Mat& m, string label, int16_t pxNum)
@@ -476,8 +520,6 @@ void printComplexPixelValue(cv::Mat& m, string label, int16_t pxNum)
       cout << "Pixel " << pxNum <<"x"<<pxNum<<" of " <<label << " is: " << planes[0].at<double>(pxNum,pxNum) << " + " << planes[1].at<double>(pxNum,pxNum) << "i " << endl;
       
 }
-
-
 
 void run(FPM_Dataset * dataset)
 {
@@ -495,25 +537,10 @@ void run(FPM_Dataset * dataset)
    Mat objfcrop_abs;
    Mat objfcrop_conj;
    
-   // Initialize FT of reconstructed object with center led image
-   Mat complexI;
-   Mat planes[] = {Mat_<double>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image), Mat::zeros(dataset->Np,dataset->Np, CV_64F)};
-   merge(planes, 2, complexI);
-   tmpMat1 = fftShift(complexI);
-   cv::sqrt(tmpMat1,tmpMat1); //Intensity to amplitude
-   dft(tmpMat1,tmpMat1,DFT_COMPLEX_OUTPUT);
-   
-   planes[0] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
-   planes[1] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
-   merge(planes,2,dataset->objF);
-   tmpMat2 = fftShift(tmpMat1);
-   
-   tmpMat2.copyTo(cv::Mat(dataset->objF, cv::Rect(dataset->imageStack.at(dataset->sortedIndicies.at(1)).cropXStart,dataset->imageStack.at(dataset->sortedIndicies.at(1)).cropYStart,dataset->Np,dataset->Np)));
-   
-   tmpMat1 = fftShift(dataset->objF);
-   dataset->objF = tmpMat1.clone();
-   
+   Mat Objfcrop_abs; Mat Objfcrop_abs_sq; Mat Objf_abs; Mat Objfcrop_conj; Mat Objfcrop_abs_conj;
+
    // Initialize pupil function
+   Mat planes[] = {Mat::zeros(dataset->Np,dataset->Np, CV_64F), Mat::zeros(dataset->Np,dataset->Np, CV_64F)};
    planes[0] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
    planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
 
@@ -523,17 +550,35 @@ void run(FPM_Dataset * dataset)
    cv::circle(planes[0], center, naRadius ,cv::Scalar(1.0), -1, 8, 0);
    
    // FFTshift the pupil so it is consistant with object FT   
-   //showImg(planes[0]);
-   tmpMat1 = fftShift(planes[0]);
-   planes[0] = tmpMat1;
+   planes[0] = fftShift(planes[0]);
    
    merge(planes, 2, dataset->pupil);
    merge(planes, 2, dataset->pupilSupport);
-   //planes[1] = planes[0].clone();
+   
+   // Initialize FT of reconstructed object with center led image
+   Mat complexI;
+   planes[0] = Mat_<double>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image);
+   cv::sqrt(planes[0], planes[0]); // Convert to amplitude
+   planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
+   
+   merge(planes, 2, complexI);
+   //dft(complexI, complexI,DFT_SCALE | DFT_COMPLEX_OUTPUT);
+   fft2(complexI,complexI);
+   
+   showImgMag(complexI,"Initialized Output");
+   
+   planes[0] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
+   planes[1] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
+   merge(planes,2,dataset->objF);
+   
+   complexMultiply(complexI,fftShift(dataset->pupilSupport),complexI);
+   
+   complexI.copyTo(cv::Mat(dataset->objF, cv::Rect(dataset->imageStack.at(dataset->sortedIndicies.at(1)).cropXStart,dataset->imageStack.at(dataset->sortedIndicies.at(1)).cropYStart,dataset->Np,dataset->Np)));
+   dataset->objF = fftShift(dataset->objF).clone();
    
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
-      for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++)
+      for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++) // 
       {
       int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
       //cout<<ledNum<<endl;
@@ -560,176 +605,89 @@ void run(FPM_Dataset * dataset)
          //maxComplexReal(currImg->ObjfcropP,"ObjfcropP");
       }
       
-      dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE | DFT_COMPLEX_OUTPUT | DFT_SCALE); // Real-space of object
+      //dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE | DFT_SCALE); // Real-space of object
+      ifft2(currImg->ObjfcropP,currImg->ObjcropP);
       if(runDebug)
       {
            showImgMag(currImg->ObjcropP,"ObjcropP");
-           printComplexPixelValue(currImg->ObjcropP,"ObjcropP",debugPxVal);
+           //printComplexPixelValue(currImg->ObjcropP,"ObjcropP",debugPxVal);
            maxComplexReal(currImg->ObjcropP,"ObjcropP");
            }
       
-      // Replace Amplitude portion
+      // Replace Amplitude
       currImg->Image.convertTo(tmpMat1,CV_64FC1);
       planes[0] = fftShift(tmpMat1); // Need to FFTShift for proper updating
       planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
       cv::merge(planes,2,tmpMat1);
-      cv::sqrt(tmpMat1,tmpMat1); // Works because tmpMat is real-valued (complex portion is zero)
+      cv::sqrt(tmpMat1,tmpMat2); // Works because tmpMat is real-valued (complex portion is zero)
       if(runDebug)
         showImgMag(tmpMat1,"Replaced Amplitude, before");
-      complexMultiply(tmpMat1, currImg->ObjcropP,tmpMat2); //
-      tmpMat3 = tmpMat2.clone(); // Initializes tmpMat3
-      
+        
       complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
-      complexDivide(tmpMat2, tmpMat3, tmpMat1); 
-      dft(tmpMat1,currImg->Objfup, DFT_COMPLEX_OUTPUT);
+      complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
+      complexMultiply(tmpMat1, tmpMat2 ,tmpMat3);
+      //dft(tmpMat3,currImg->Objfup, DFT_COMPLEX_OUTPUT);
+      fft2(tmpMat3,currImg->Objfup);
       
       if(runDebug)
       {
            showImgMag(currImg->Objfup,"Objfup");
-           printComplexPixelValue(currImg->Objfup,"Objfup",debugPxVal);
+           //printComplexPixelValue(currImg->Objfup,"Objfup",debugPxVal);
            maxComplexReal(currImg->Objfup,"Objfup");
-        }
-      
+      }
       ///////// Alternating Projection Method - Object ///////////
       // MATLAB: Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);
       
-      // Absolute Value of Pupil
-      complexAbs(dataset->pupil,pupilAbs);
+      // Numerator 
+      Mat pupil_abs; Mat pupil_abs_sq; Mat pupil_conj; Mat numerator; Mat denomSum;
+      complexAbs(dataset->pupil,pupil_abs);
+      complexConj(dataset->pupil, pupil_conj);
+      complexMultiply(pupil_abs, pupil_conj, tmpMat1);
+      complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
       
-      if (runDebug)
-         showImgMag(pupilAbs,"Pupil Abs");
+      // Denominator
+      double p; double pupil_abs_max;
+      cv::minMaxLoc(pupil_abs, &p, &pupil_abs_max);
+      complexMultiply(pupil_abs,pupil_abs,pupil_abs_sq);
+      denomSum = pupil_abs_sq + dataset->delta2;
+      complexDivide(numerator, denomSum * pupil_abs_max, tmpMat2);
       
-      // Get max of pupil
-      cv::minMaxLoc(pupilAbs, &q, &pupilMax);
+      Mat objF_centered;
+      objF_centered = fftShift(dataset->objF);
       
-      // Get complex conj of pupil
-      complexConj(dataset->pupil, pupilConj);
-      if (runDebug)
-         showImgMag(pupilConj,"Pupil Conj");
+      Mat objF_cropped = cv::Mat(objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart, dataset->Np, dataset->Np));
+      tmpMat1 = fftShift(tmpMat2) + objF_cropped;
 
-      complexMultiply(pupilAbs, pupilConj, tmpMat1);
-      if (runDebug)
-      {
-         showImgMag(tmpMat1,"pupilAbs * pupilConj");
-         maxComplexReal(tmpMat1,"pupilAbs * pupilConj");
-         maxComplexReal(currImg->Objfup ,"currImg->Objfup");
-         maxComplexReal(currImg->ObjfcropP ,"currImg->ObjfcropP");
-      }
-      
-      //maxComplexReal(currImg->Objfup ,"currImg->Objfup");
-      //maxComplexReal(currImg->ObjfcropP ,"currImg->ObjfcropP");
-      Mat tmp = currImg->Objfup - currImg->ObjfcropP;
-      //showImgMag(tmp,"Data and value difference");
-      //showImgMag(tmpMat1,"tmpMat1");
-      //maxComplexReal(tmpMat1,"difference");
-      complexMultiply(tmpMat1, tmp, tmpMat2); // This is the numerator of the update function
-      if (runDebug)
-         showImgMag(tmpMat2,"Obj Update Numerator");
-      
-      maxComplexReal(tmpMat2,"Obj Update Numerator");
-      
-      complexMultiply(pupilAbs, pupilAbs, tmpMat3); // Pupil Magnitude Squared
-      if (runDebug)
-         showImgMag(tmpMat3,"Pupil Mag Squared");
-      
-      // Update incriment for object
-      complexDivide(tmpMat2, pupilMax * (tmpMat3 + dataset->delta1), tmpMat1);
-      tmpMat2 = fftShift(tmpMat1);
-      tmpMat1 = tmpMat2.clone();
-      
-
-      if (runDebug)
-         showImgMag(tmpMat1,"Object Update Incriment");
-      
-      // Update fourier space of object
-     // tmpMat3 = fftShift(tmpMat1 + dataset->objF(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
-      /*
-      if (runDebug)
-         showImgMag(tmpMat1,"Object Update Value");
-      */
-      
-      tmpMat2 = fftShift(dataset->objF);
-      //showImgMag(tmpMat2,"Updated Image FT (shifted)");
-      
-      tmpMat3 = cv::Mat(tmpMat2, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np));
-      //showImgMag(tmpMat3,"Updated Image FT ROI (shifted)");
-      
-      //showImgMag(tmpMat1,"Object Update Incriment");
-      
-      tmpMat1 = tmpMat3 + tmpMat1;
-      //showImgMag(tmpMat1,"Updated Image FT ROI Sum (shifted)");
-      
-      
       // Replace the region in objF
-      tmpMat1.copyTo(cv::Mat(tmpMat2, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
-      dataset->objF = fftShift(tmpMat2);
-       
-      //showImgMag(tmpMat2,"Updated Image (shifted)");
-     
-
-      //if (runDebug)
-      //showImgMag(dataset->objF,"Obj Full Fourier Space");
-      /////// Alternating Projection Method - Pupil ///////////
-      //  MATLAB:  Pupil = Pupil + abs(Objfcrop).*conj(Objfcrop).*(Objfup-ObjfcropP)/max(abs(Objf(:)))./(abs(Objfcrop).^2+delta1).*Pupilsupport;
-            
-      // Absolute Value of Object F.T.
-      complexAbs(currImg->Objfcrop, objfcrop_abs);
-      if (runDebug)
-         showImgMag(objfcrop_abs,"Object Full Fourier Space Abs");
+      tmpMat1.copyTo(cv::Mat(objF_centered, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
+      dataset->objF = fftShift(objF_centered);
       
-      // Get max of object
-      cv::minMaxLoc(objfcrop_abs, &p, &objf_max);
+      ////// PUPIL UPDATE ///////
+      // Numerator 
+      complexAbs(currImg->Objfcrop,Objfcrop_abs);
+      complexAbs(dataset->objF, Objf_abs);
+      complexConj(currImg->Objfcrop, Objfcrop_conj);
+      complexMultiply(Objfcrop_abs, Objfcrop_conj, tmpMat1);
+      complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
       
-      // Get complex conj of object
-
-      complexConj(currImg->Objfcrop, objfcrop_conj);
-      if (runDebug)
-         showImgMag(objfcrop_conj,"Object Conj");
-
-      complexMultiply(objfcrop_abs, objfcrop_conj, tmpMat1);
-      if (runDebug)
-      {
-         showImgMag(tmpMat1,"Object Conj and abs product");
-         showImgMag(currImg->Objfup - currImg->ObjfcropP,"Update difference");
-         }
-      complexMultiply(tmpMat1, (currImg->Objfup - currImg->ObjfcropP), tmpMat2); // This is the numerator of the update function
+      // Denominator
+      double Objf_abs_max;
+      cv::minMaxLoc(Objf_abs, &p, &Objf_abs_max);
+      complexMultiply(Objfcrop_abs,Objfcrop_abs,Objfcrop_abs_sq);
+      denomSum = Objfcrop_abs_sq + dataset->delta1;
+      complexDivide(numerator, denomSum * Objf_abs_max, tmpMat2);
+      complexMultiply(tmpMat2,dataset->pupilSupport, tmpMat2);
       
-      /*
-      complex_imwrite("tmpMat1.tiff",tmpMat1);
-      complex_imwrite("tmpMat2.tiff",tmpMat1);
-      complex_imwrite("currImg->Objfup.tiff",currImg->Objfup );
-      complex_imwrite("currImg->ObjfcropP.tiff",currImg->ObjfcropP );
-      */
-      
-      if (runDebug)
-         showImgMag(tmpMat2,"Pupil update numerator");
-            
-      complexMultiply(objfcrop_abs, objfcrop_abs, tmpMat3); // Object Magnitude Squared
-      if (runDebug)
-         showImgMag(tmpMat3,"Object Intensity");
-      
-      // Update incriment for pupil
-      complexDivide(tmpMat2, objf_max * (tmpMat3 + dataset->delta2), tmpMat1);
-      complexMultiply(tmpMat1, dataset->pupilSupport, tmpMat1); // Pupil Support
-      if (runDebug)
-         showImgMag(tmpMat1,"Pupil Update Incriment");
-
-      // Update fourier space of pupil
-      //dataset->pupil = dataset->pupil + tmpMat1;
-      if (runDebug)
-         showImgMag(dataset->pupil,"Pupil Update");
-      
-      // Pupil = Pupil + abs(Objfcrop).*conj(Objfcrop).*(Objfup-ObjfcropP)/max(abs(Objf(:)))./(abs(Objfcrop).^2+delta1).*Pupilsupport;
-      if (runDebug)
-         cout << "LED " << ledNum << " completed!" << endl;
-         cv::destroyAllWindows();
+      dataset->pupil = dataset->pupil + tmpMat2;
       }
       cout<<"Iteration " << itr << " Completed!" <<endl;
-
-      dft(dataset->objF ,dataset->objCrop, DFT_INVERSE | DFT_COMPLEX_OUTPUT | DFT_SCALE);
-      showImgMag(dataset->objCrop, "Result");
-
-   }  
+      dft(dataset->objF ,dataset->objCrop, DFT_INVERSE | DFT_SCALE);
+    
+   }
+     showImgMag((dataset->objCrop), "Object");
+     showImgMag((dataset->objF),"Object Spectrum");
+     showImgMag((dataset->pupil),"Pupil");
+      //showImgMag(fftShift(dataset->pupil),"Pupil"); 
 }
 
 int main(int argc, char** argv )
@@ -781,29 +739,81 @@ int main(int argc, char** argv )
    mDataset.delta1 = 5;
    mDataset.delta2 = 1000;
    
-   /* TESTING COMPLEX MAT FUNCTIONS
+   /* TESTING COMPLEX MAT FUNCTIONS 
    Mat testMat1;
    Mat testMat2;
+   Mat testMat3;
+   Mat testMat4;
    
-   Mat test1[] = {Mat::ones(3, 3, CV_32F)*1,Mat::ones(3, 3, CV_32F)*2};
-   Mat test2[] = {Mat::ones(3, 3, CV_32F)*3,Mat::ones(3, 3, CV_32F)*4};
+   Mat conj1; Mat abs1; Mat tmp1; Mat numeratorMat; Mat abssq; Mat abs2;
    
+   Mat test1[] = {Mat::ones(3, 3, CV_64F)*-1, Mat::ones(3, 3, CV_64F)*2};
+   Mat test2[] = {Mat::ones(3, 3, CV_64F)*3,Mat::ones(3, 3, CV_64F)*-4};
+   Mat test3[] = {Mat::ones(3, 3, CV_64F)*5,Mat::ones(3, 3, CV_64F)*-6};
+   Mat test4[] = {Mat::ones(3, 3, CV_64F)*7,Mat::ones(3, 3, CV_64F)*-8};
    
-   Mat test3[] = {Mat::ones(3, 3, CV_32F)*0,Mat::ones(3, 3, CV_32F)*0};
+   Mat out[] = {Mat::ones(3, 3, CV_64F)*7,Mat::ones(3, 3, CV_64F)*-8};
+   
    cv::merge(test1,2,testMat1);
    cv::merge(test2,2,testMat2);
+   cv::merge(test3,2,testMat3);
+   cv::merge(test4,2,testMat4);
+   Mat outputMat; Mat tmp;
+
+   complexAbs(testMat1,abs1);
+   complexAbs(testMat4,abs2);
+   complexConj(testMat1,conj1);
+   complexMultiply(abs1,conj1,tmp1);
    
-   Mat outputMat;
+   // good here
    
-   //complexDivide(testMat1,testMat2,outputMat);
-   complexConj(testMat1,outputMat);
+   complexMultiply(testMat2-testMat3,tmp1,numeratorMat);
    
-   cv::split(outputMat,test3);
+   double p; double max; double delta1 = 1000;
+   cv::minMaxLoc(abs2, &p, &max);
+   cout << "abs2 Max: " << max << endl;
+   
+   complexMultiply(abs1,abs1,abssq);
+
+
+   
+   cv::split(numeratorMat,test1);
+   cout << "numerator (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
+   
+   // NUMERATOR IS GOOD
+   
+   Mat sum2 = (abssq+delta1);
+   
+   cv::split(sum2,test1);
+   cout << "abssq+delta1 = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
+   
+   
+   // NEED TO ADD AND MULTIPLY SEPERATLY
+   cv::split(sum2 * max,test1);
+   cout << "denominator inverse(NORMAL) (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
+   
+   Mat inverse;
+   Mat one1 = Mat::ones(testMat1.rows,testMat1.cols,testMat1.type());
+   complexDivide(one1,sum2 * max,inverse);
+
+   cv::split(inverse,out);
+   cout << "Inverse of Denom (real) = " << endl << " "  << out[0] <<",   (imag) = " << endl << " "  << out[1] << endl << endl;
+   
+      complexDivide(numeratorMat, sum2 * max, outputMat);
+   
+   
+   cv::split(testMat1,test1);
    cv::split(testMat2,test2);
+   cv::split(testMat3,test3);
+   cv::split(testMat4,test4);
    
-   cout << "Input 1 (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
-   cout << "Input 2 (real) = " << endl << " "  << test2[0] << ",   (imag) = " << endl << " "  << test2[1] << endl << endl;
-   cout << "Output (real) = " << endl << " "  << test3[0] <<",   (imag) = " << endl << " "  << test3[1] << endl << endl;
+   cout << "objfcrop 1 (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
+   cout << "objfup 2 (real) = " << endl << " "  << test2[0] << ",   (imag) = " << endl << " "  << test2[1] << endl << endl;
+   cout << "objfcropp 3 (real) = " << endl << " "  << test3[0] << ",   (imag) = " << endl << " "  << test3[1] << endl << endl;
+   cout << "objf 4 (real) = " << endl << " "  << test4[0] << ",   (imag) = " << endl << " "  << test4[1] << endl << endl;
+   
+   cv::split(outputMat,out);
+   cout << "Output (real) = " << endl << " "  << out[0] <<",   (imag) = " << endl << " "  << out[1] << endl << endl;
    
    */
    
