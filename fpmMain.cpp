@@ -1,6 +1,8 @@
 /*
 fpmMain.cpp
 */
+
+#include <opencv2/contrib/contrib.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -459,8 +461,7 @@ void onMouse( int event, int x, int y, int, void* param )
     Mat* imgPtr = (Mat*) param;
     Mat image;
     imgPtr->copyTo(image);
-    
-    //Mat image = imgPtr.clone();
+
     
     switch (event)
     {
@@ -538,14 +539,18 @@ void showImgObject(Mat m, string windowTitle)
 {
    Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
    split(m, planes);
-   normalize(planes[0], planes[0], 0, 1, CV_MINMAX);
-   normalize(planes[1], planes[1], 0, 1, CV_MINMAX);
+   
+   Mat scaledReal; Mat scaledImag;
+   normalize(planes[0], scaledReal, 0, 1, CV_MINMAX);
+   normalize(planes[1], scaledImag, 0, 1, CV_MINMAX);
+   
+   applyColorMap(scaledImag, scaledImag, COLORMAP_JET);
    namedWindow(windowTitle + " REAL", WINDOW_NORMAL);
    setMouseCallback(windowTitle + " REAL", onMouse, &planes[0]);
-   imshow(windowTitle + " REAL", planes[0]);
+   imshow(windowTitle + " REAL", scaledReal);
    namedWindow(windowTitle + " IMAG", WINDOW_NORMAL);
    setMouseCallback(windowTitle + " IMAG", onMouse, &planes[1]);
-   imshow(windowTitle + " IMAG", planes[1]);
+   imshow(windowTitle + " IMAG", scaledImag);
    waitKey();
    cv::destroyAllWindows();
 }
@@ -616,15 +621,11 @@ void run(FPM_Dataset * dataset)
    planes[0] = Mat_<double>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image);
    cv::sqrt(planes[0], planes[0]); // Convert to amplitude
    planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
-   
    merge(planes, 2, complexI);
-   //dft(complexI, complexI, DFT_SCALE | DFT_COMPLEX_OUTPUT);
-   fft2(complexI,complexI);
    
+   fft2(complexI, complexI);
    complexI = fftShift(complexI); // Shift to center
-   //complexMultiply(complexI,fftShift(dataset->pupilSupport),complexI);
-   
-   showImgFourier(complexI,"Initialized FFT (Should be fftshifted)");
+   complexMultiply(complexI,fftShift(dataset->pupilSupport),complexI);
    
    planes[0] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
    planes[1] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
@@ -635,126 +636,121 @@ void run(FPM_Dataset * dataset)
    // Shift to un-fftshifted position
    dataset->objF = fftShift(dataset->objF);
    
-   showImgFourier(dataset->objF,"Initialized ObjF");
-   
-   
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
       for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++) // 
       {
-      int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
-      //cout<<ledNum<<endl;
-      
-      FPMimg * currImg;
-      currImg = & dataset->imageStack.at(ledNum);
-     
-      // Update Fourier space, multply by pupil (P * O)
-      tmpMat2 = fftShift(dataset->objF); // Shifted Object spectrum (at center)
-      currImg->Objfcrop = fftShift(tmpMat2(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np))); // Take ROI from shifted object spectrum
-      complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
-      //tmpMat2 = ifftShift(currImg->ObjfcropP);
-      ifft2(currImg->ObjfcropP,currImg->ObjcropP);
-      if (runDebug)
-      {
-         std::cout << "NEW LED" <<std::endl;
-         showImgFourier(currImg->Objfcrop,"currImg->Objfcrop");
-         showImgFourier(currImg->ObjfcropP,"currImg->ObjfcropP");
-         showImgObject(currImg->ObjcropP,"currImg->ObjcropP");
-      }
-       
-      // Replace Amplitude
-      currImg->Image.convertTo(tmpMat1,CV_64FC1);
-      planes[0] = tmpMat1;
-      planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
-      cv::merge(planes,2,tmpMat1);
-      cv::sqrt(tmpMat1,tmpMat2); // Works because tmpMat is real-valued (complex portion is zero)
-      
-      complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
-      complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
-      complexMultiply(tmpMat1, tmpMat2 ,tmpMat3);
-      fft2(tmpMat3,currImg->Objfup);
-      
-      if(runDebug)
-      {
-           showImgObject(tmpMat2,"Amplitude of Input Image");
-           showImgObject(tmpMat3,"Image with amplitude   replaced");
-           showImgFourier(currImg->Objfup,"currImg->Objfup");
-      }
-      
-      ///////// Alternating Projection Method - Object ///////////
-      // MATLAB: Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);
-      
-      // Numerator 
-      Mat pupil_abs; Mat pupil_abs_sq; Mat pupil_conj; Mat numerator; Mat denomSum;
-      complexAbs(dataset->pupil,pupil_abs);
-      complexConj(dataset->pupil, pupil_conj);
-      complexMultiply(pupil_abs, pupil_conj, tmpMat1);
-      complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
-      
-      // Denominator
-      double p; double pupil_abs_max;
-      cv::minMaxLoc(pupil_abs, &p, &pupil_abs_max);
-      complexMultiply(pupil_abs,pupil_abs,pupil_abs_sq);
-      denomSum = pupil_abs_sq + dataset->delta2;
-      complexDivide(numerator, denomSum * pupil_abs_max, tmpMat2);
-      
-      if(runDebug)
-      {
-           showImgFourier(numerator,"Object update Numerator");
-           showImgFourier(tmpMat2,"Object update Denominator");
-      }
-      
-      Mat objF_centered;
-      objF_centered = fftShift(dataset->objF);
-      
-      Mat objF_cropped = cv::Mat(objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart, dataset->Np, dataset->Np));
-      tmpMat1 = fftShift(tmpMat2) + objF_cropped;
-      
-      if(runDebug)
-      {
-           showImgFourier(objF_cropped,"Origional Object Spectrum to be updated");
-           showImgFourier(fftShift(tmpMat2),"Object spectrum update incriment");
-      }
+         int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
+         //cout<<ledNum<<endl;
+         
+         FPMimg * currImg;
+         currImg = & dataset->imageStack.at(ledNum);
+        
+         // Update Fourier space, multply by pupil (P * O)
+         tmpMat2 = fftShift(dataset->objF); // Shifted Object spectrum (at center)
+         currImg->Objfcrop = fftShift(tmpMat2(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np))); // Take ROI from shifted object spectrum
+         complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
+         //tmpMat2 = ifftShift(currImg->ObjfcropP);
+         ifft2(currImg->ObjfcropP,currImg->ObjcropP);
+         if (runDebug)
+         {
+            std::cout << "NEW LED" <<std::endl;
+            showImgFourier(currImg->Objfcrop,"currImg->Objfcrop");
+            showImgFourier(currImg->ObjfcropP,"currImg->ObjfcropP");
+            showImgObject(currImg->ObjcropP,"currImg->ObjcropP");
+         }
+          
+         // Replace Amplitude
+         currImg->Image.convertTo(tmpMat1,CV_64FC1);
+         planes[0] = tmpMat1;
+         planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
+         cv::merge(planes,2,tmpMat1);
+         cv::sqrt(tmpMat1,tmpMat2); // Works because tmpMat is real-valued (complex portion is zero)
+         
+         complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
+         complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
+         complexMultiply(tmpMat1, tmpMat2 ,tmpMat3);
+         fft2(tmpMat3,currImg->Objfup);
+         
+         if(runDebug)
+         {
+              showImgObject(tmpMat2,"Amplitude of Input Image");
+              showImgObject(tmpMat3,"Image with amplitude   replaced");
+              showImgFourier(currImg->Objfup,"currImg->Objfup");
+         }
+         
+         ///////// Alternating Projection Method - Object ///////////
+         // MATLAB: Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);
+         
+         // Numerator 
+         Mat pupil_abs; Mat pupil_abs_sq; Mat pupil_conj; Mat numerator; Mat denomSum;
+         complexAbs(dataset->pupil,pupil_abs);
+         complexConj(dataset->pupil, pupil_conj);
+         complexMultiply(pupil_abs, pupil_conj, tmpMat1);
+         complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
+         
+         // Denominator
+         double p; double pupil_abs_max;
+         cv::minMaxLoc(pupil_abs, &p, &pupil_abs_max);
+         complexMultiply(pupil_abs,pupil_abs,pupil_abs_sq);
+         denomSum = pupil_abs_sq + dataset->delta2;
+         complexDivide(numerator, denomSum * pupil_abs_max, tmpMat2);
+         
+         if(runDebug)
+         {
+              showImgFourier(numerator,"Object update Numerator");
+              showImgFourier(tmpMat2,"Object update Denominator");
+         }
+         
+         Mat objF_centered;
+         objF_centered = fftShift(dataset->objF);
+         
+         Mat objF_cropped = cv::Mat(objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart, dataset->Np, dataset->Np));
+         tmpMat1 = fftShift(tmpMat2) + objF_cropped;
+         
+         if(runDebug)
+         {
+              showImgFourier(objF_cropped,"Origional Object Spectrum to be updated");
+              showImgFourier(fftShift(tmpMat2),"Object spectrum update incriment");
+         }
 
-      // Replace the region in objF
-      tmpMat1.copyTo(cv::Mat(objF_centered, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
-      dataset->objF = fftShift(objF_centered);
-      
-      if(runDebug)
-      {
-           showImgFourier(fftShift(tmpMat1),"Cropped updated object spectrum");
-           showImgFourier(dataset->objF,"Full updated object spectrum");
-      }
-      
-      ////// PUPIL UPDATE ///////
-      // Numerator 
-      //showImgFourier(currImg->Objfcrop,"currImg->Objfcrop");
-      complexAbs(currImg->Objfcrop, Objfcrop_abs);
-      complexAbs(dataset->objF, Objf_abs);
-      //showImgFourier(dataset->objF,"dataset->objF");
-      
-      complexConj(currImg->Objfcrop, Objfcrop_conj); 
-      complexMultiply(Objfcrop_abs, Objfcrop_conj, tmpMat1);
-      complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
-      
-      // Denominator
-      double Objf_abs_max;
-      cv::minMaxLoc(Objf_abs, &p, &Objf_abs_max);
-      complexMultiply(Objfcrop_abs,Objfcrop_abs,Objfcrop_abs_sq);
-      denomSum = Objfcrop_abs_sq + dataset->delta1;
-      complexDivide(numerator, denomSum * Objf_abs_max, tmpMat2);
-      complexMultiply(tmpMat2,dataset->pupilSupport, tmpMat2);
-      
-      dataset->pupil += tmpMat2; 
+         // Replace the region in objF
+         tmpMat1.copyTo(cv::Mat(objF_centered, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
+         dataset->objF = fftShift(objF_centered);
+         
+         if(runDebug)
+         {
+              showImgFourier(fftShift(tmpMat1),"Cropped updated object spectrum");
+              showImgFourier(dataset->objF,"Full updated object spectrum");
+         }
+         
+         ////// PUPIL UPDATE ///////
+         // Numerator 
+         //showImgFourier(currImg->Objfcrop,"currImg->Objfcrop");
+         complexAbs(currImg->Objfcrop, Objfcrop_abs);
+         complexAbs(dataset->objF, Objf_abs);
+         //showImgFourier(dataset->objF,"dataset->objF");
+         
+         complexConj(currImg->Objfcrop, Objfcrop_conj); 
+         complexMultiply(Objfcrop_abs, Objfcrop_conj, tmpMat1);
+         complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
+         
+         // Denominator
+         double Objf_abs_max;
+         cv::minMaxLoc(Objf_abs, &p, &Objf_abs_max);
+         complexMultiply(Objfcrop_abs,Objfcrop_abs,Objfcrop_abs_sq);
+         denomSum = Objfcrop_abs_sq + dataset->delta1;
+         complexDivide(numerator, denomSum * Objf_abs_max, tmpMat2);
+         complexMultiply(tmpMat2,dataset->pupilSupport, tmpMat2);
+         
+         dataset->pupil += tmpMat2; 
       }
       cout<<"Iteration " << itr << " Completed!" <<endl;
       dft(dataset->objF ,dataset->objCrop, DFT_INVERSE | DFT_SCALE);
-    
    }
      showImgObject((dataset->objCrop), "Object");
      showImgFourier((dataset->objF),"Object Spectrum");
-     showImgFourier((dataset->pupil),"Pupil");
-      //showImgMag(fftShift(dataset->pupil),"Pupil"); 
+     showImgObject(fftShift(dataset->pupil),"Pupil");
 }
 
 int main(int argc, char** argv )
@@ -804,7 +800,7 @@ int main(int argc, char** argv )
    mDataset.Mlarge = mDataset.Mcrop * resImprovementFactor;
    mDataset.ps = mDataset.ps_eff / (float)resImprovementFactor;
    mDataset.delta1 = 5;
-   mDataset.delta2 = 100;
+   mDataset.delta2 = 10;
    
    /* TESTING COMPLEX MAT FUNCTIONS 
    Mat testMat1;
@@ -882,6 +878,38 @@ int main(int argc, char** argv )
    cv::split(outputMat,out);
    cout << "Output (real) = " << endl << " "  << out[0] <<",   (imag) = " << endl << " "  << out[1] << endl << endl;
    
+   */
+   
+   /*
+   Mat planes[] = {Mat::zeros(mDataset.Np,mDataset.Np, CV_64F), Mat::zeros(mDataset.Np,mDataset.Np, CV_64F)};
+   planes[0] = Mat::zeros(mDataset.Np,mDataset.Np, CV_64F);
+   planes[1] = Mat::zeros(mDataset.Np,mDataset.Np, CV_64F);
+   
+   Mat ft; Mat realObj; Mat realObj2;
+   
+
+   float offset = 11;
+   float ctrX = 45;
+   float ctrY = 45;
+   planes[0].at<double>(ctrY,ctrX+offset) = (double)1.00;
+   planes[0].at<double>(ctrY,ctrX-offset) = (double)1.00;
+   
+   //planes[1].at<double>(ctrY+offset,ctrX) = (double) 5.00;
+   //planes[1].at<double>(ctrY-offset,ctrX) = (double)10.00;
+   
+   merge(planes,2,realObj);
+   
+   showImgObject(realObj, "realObj");
+   realObj2 = ifftShift(realObj);
+   //fft2(realObj,ft);
+   cv::dft(realObj2, ft, DFT_COMPLEX_OUTPUT);
+   showImgObject(ft, "FT");
+   //ifft2(ft,realObj2);
+   
+
+   cv::dft(ft,realObj2, DFT_INVERSE | DFT_COMPLEX_OUTPUT | DFT_SCALE); // Real-space of object
+   realObj = fftShift(realObj2);
+   showImgObject(realObj,"Result");
    */
    
    loadDataset(&mDataset);
