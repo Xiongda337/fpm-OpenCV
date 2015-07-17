@@ -98,7 +98,7 @@ class FPM_Dataset{
         cv::Mat               objFCrop;                 // Reconstructed object, Fourier space, cropped
         cv::Mat               pupil;                     // Reconstructed pupil, Fourier Space
         cv::Mat               pupilSupport;             // Binary mask for pupil support, Fourier space
-        int16_t               itrCount = 5;            // Iteration Count
+        int16_t               itrCount = 10;            // Iteration Count
         
         float                 eps = 0.0000000001;
 };
@@ -229,14 +229,14 @@ int loadDataset(FPM_Dataset *dataset) {
                currentImage.idx_u = (int16_t) round(currentImage.uled/dataset->du);
           		currentImage.idx_v = (int16_t) round(currentImage.vled/dataset->du);
           		
-          		currentImage.pupilShiftX = (int16_t) round( currentImage.sinTheta_x / dataset->lambda * dataset->ps * dataset->Nlarge);
-          		currentImage.pupilShiftY = (int16_t) round( currentImage.sinTheta_y / dataset->lambda * dataset->ps * dataset->Mlarge);
+          		currentImage.pupilShiftX = (int16_t) round( currentImage.sinTheta_x / dataset->lambda * dataset->ps * dataset->Nlarge) ; // Deal with MATLAB indexing
+          		currentImage.pupilShiftY = (int16_t) round( currentImage.sinTheta_y / dataset->lambda * dataset->ps * dataset->Mlarge); // Deal with MATLAB indexing
           		
-          		currentImage.cropXStart = (int16_t)round(dataset->Nlarge/2) + 1 + currentImage.pupilShiftX - (int16_t)round(dataset->Ncrop/2);
-          		currentImage.cropXEnd = (int16_t)round(dataset->Nlarge/2) + 1 + currentImage.pupilShiftX + (int16_t)round(dataset->Ncrop/2) - 1;
+          		currentImage.cropXStart = (int16_t)round(dataset->Nlarge/2) + currentImage.pupilShiftX - (int16_t)round(dataset->Ncrop/2);
+          		currentImage.cropXEnd = (int16_t)round(dataset->Nlarge/2) + currentImage.pupilShiftX + (int16_t)round(dataset->Ncrop/2) - 1;
           		
-          		currentImage.cropYStart = (int16_t)round(dataset->Mlarge/2) + 1 + currentImage.pupilShiftY - (int16_t)round(dataset->Ncrop/2);
-          		currentImage.cropYEnd = (int16_t)round(dataset->Mlarge/2) + 1 + currentImage.pupilShiftY + (int16_t)round(dataset->Ncrop/2) - 1;
+          		currentImage.cropYStart = (int16_t)round(dataset->Mlarge/2) + currentImage.pupilShiftY - (int16_t)round(dataset->Ncrop/2);
+          		currentImage.cropYEnd = (int16_t)round(dataset->Mlarge/2) + currentImage.pupilShiftY + (int16_t)round(dataset->Ncrop/2) - 1;
           		
           		dataset->imageStack.at(currentImage.led_num) = currentImage;
           		
@@ -417,27 +417,27 @@ void complexInverse(const cv::Mat& m, cv::Mat& inverse)
 cv::Mat fftShift(cv::Mat m)
 {
       cv::Mat shifted = cv::Mat(m.cols,m.rows,m.type());
-      circularShift(m, shifted, round(m.cols/2), round(m.rows/2));
+      circularShift(m, shifted, std::ceil((double) m.cols/2), std::ceil((double) m.rows/2));
       return shifted;
 }
 
 cv::Mat ifftShift(cv::Mat m)
 {
       cv::Mat shifted = cv::Mat(m.cols,m.rows,m.type());
-      circularShift(m, shifted, round(m.cols/-2), round(m.rows/-2));
+      circularShift(m, shifted, std::floor((double) m.cols/2), std::floor((double)m.rows/2));
       return shifted;
 }
 
 // Opencv fft implimentation
 void fft2(cv::Mat& input, cv::Mat& output)
 {
-   cv::dft(input, output);
+   cv::dft(input, output, DFT_COMPLEX_OUTPUT);
 }
-
+ 
 // Opencv ifft implimentation
 void ifft2(cv::Mat& input, cv::Mat& output)
 {
-   cv::dft(input, output, DFT_INVERSE | DFT_SCALE); // Real-space of object
+   cv::dft(input, output, DFT_INVERSE | DFT_COMPLEX_OUTPUT | DFT_SCALE); // Real-space of object
 }
 
 void complex_imwrite(string fname, Mat& m1)
@@ -469,7 +469,7 @@ void onMouse( int event, int x, int y, int, void* param )
           Mat planes[] = {Mat::zeros(image.rows, image.cols, image.type()),Mat::zeros(image.rows, image.cols, image.type())};
           split(image, planes);    
         
-          printf("%d %d: %f + %fi\n", 
+          printf("x:%d y:%d: %f + %fi\n", 
           x, y, 
           planes[0].at<double>(y,x), 
           planes[1].at<double>(y,x));
@@ -513,12 +513,68 @@ void showImgMag(Mat m, string windowTitle)
    cv::destroyAllWindows();
 }
 
+void showImgFourier(Mat m, string windowTitle)
+{
+   Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
+   cv::Mat m2 = fftShift(m);
+   split(m2, planes);                   // planes[0] = Re(DFT(I), planes[1] = Im(DFT(I))
+   magnitude(planes[0], planes[1], planes[0]);// planes[0] = magnitude
+   Mat magI = planes[0];
+
+   magI += Scalar::all(1);                    // switch to logarithmic scale
+   log(magI, magI);
+
+   // crop the spectrum, if it has an odd number of rows or columns
+   //magI = magI(Rect(0, 0, magI.cols & -2, magI.rows & -2));
+   normalize(magI, magI, 0, 1, CV_MINMAX);
+   namedWindow(windowTitle, WINDOW_NORMAL);
+   setMouseCallback(windowTitle, onMouse, &m2);
+   imshow(windowTitle, magI);
+   waitKey();
+   cv::destroyAllWindows();
+}
+
+void showImgObject(Mat m, string windowTitle)
+{
+   Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
+   split(m, planes);
+   normalize(planes[0], planes[0], 0, 1, CV_MINMAX);
+   normalize(planes[1], planes[1], 0, 1, CV_MINMAX);
+   namedWindow(windowTitle + " REAL", WINDOW_NORMAL);
+   setMouseCallback(windowTitle + " REAL", onMouse, &planes[0]);
+   imshow(windowTitle + " REAL", planes[0]);
+   namedWindow(windowTitle + " IMAG", WINDOW_NORMAL);
+   setMouseCallback(windowTitle + " IMAG", onMouse, &planes[1]);
+   imshow(windowTitle + " IMAG", planes[1]);
+   waitKey();
+   cv::destroyAllWindows();
+}
+
+void showImg(Mat m, string windowTitle)
+{
+   Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
+   split(m, planes);                   // planes[0] = Re(DFT(I), planes[1] = Im(DFT(I))
+   magnitude(planes[0], planes[1], planes[0]);// planes[0] = magnitude
+   Mat magI = planes[0];
+
+   magI += Scalar::all(1);                    // switch to logarithmic scale
+   log(magI, magI);
+
+   // crop the spectrum, if it has an odd number of rows or columns
+   //magI = magI(Rect(0, 0, magI.cols & -2, magI.rows & -2));
+   normalize(magI, magI, 0, 1, CV_MINMAX);
+   namedWindow(windowTitle, WINDOW_NORMAL);
+   setMouseCallback(windowTitle, onMouse, &m);
+   imshow(windowTitle, magI);
+   waitKey();
+   cv::destroyAllWindows();
+}
+
 void printComplexPixelValue(cv::Mat& m, string label, int16_t pxNum)
 {
       Mat planes[] = {Mat::zeros(m.rows, m.cols, m.type()),Mat::zeros(m.rows, m.cols, m.type())};
       split(m,planes);
-      cout << "Pixel " << pxNum <<"x"<<pxNum<<" of " <<label << " is: " << planes[0].at<double>(pxNum,pxNum) << " + " << planes[1].at<double>(pxNum,pxNum) << "i " << endl;
-      
+      cout << "Pixel " << pxNum <<"x"<<pxNum<<" of " <<label << " is: " << planes[0].at<double>(pxNum,pxNum) << " + " << planes[1].at<double>(pxNum,pxNum) << "i " << endl; 
 }
 
 void run(FPM_Dataset * dataset)
@@ -562,19 +618,25 @@ void run(FPM_Dataset * dataset)
    planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
    
    merge(planes, 2, complexI);
-   //dft(complexI, complexI,DFT_SCALE | DFT_COMPLEX_OUTPUT);
+   //dft(complexI, complexI, DFT_SCALE | DFT_COMPLEX_OUTPUT);
    fft2(complexI,complexI);
    
-   showImgMag(complexI,"Initialized Output");
+   complexI = fftShift(complexI); // Shift to center
+   //complexMultiply(complexI,fftShift(dataset->pupilSupport),complexI);
+   
+   showImgFourier(complexI,"Initialized FFT (Should be fftshifted)");
    
    planes[0] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
    planes[1] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
    merge(planes,2,dataset->objF);
    
-   complexMultiply(complexI,fftShift(dataset->pupilSupport),complexI);
+   complexI.copyTo(cv::Mat(dataset->objF, cv::Rect((int16_t)round(dataset->Mlarge/2) - (int16_t)round(dataset->Ncrop/2),(int16_t)round(dataset->Mlarge/2) - (int16_t)round(dataset->Ncrop/2),dataset->Np,dataset->Np)));
+    
+   // Shift to un-fftshifted position
+   dataset->objF = fftShift(dataset->objF);
    
-   complexI.copyTo(cv::Mat(dataset->objF, cv::Rect(dataset->imageStack.at(dataset->sortedIndicies.at(1)).cropXStart,dataset->imageStack.at(dataset->sortedIndicies.at(1)).cropYStart,dataset->Np,dataset->Np)));
-   dataset->objF = fftShift(dataset->objF).clone();
+   showImgFourier(dataset->objF,"Initialized ObjF");
+   
    
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
@@ -587,54 +649,38 @@ void run(FPM_Dataset * dataset)
       currImg = & dataset->imageStack.at(ledNum);
      
       // Update Fourier space, multply by pupil (P * O)
-      currImg->Objfcrop = fftShift(fftShift(dataset->objF)(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
-      
+      tmpMat2 = fftShift(dataset->objF); // Shifted Object spectrum (at center)
+      currImg->Objfcrop = fftShift(tmpMat2(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np))); // Take ROI from shifted object spectrum
       complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
+      //tmpMat2 = ifftShift(currImg->ObjfcropP);
+      ifft2(currImg->ObjfcropP,currImg->ObjcropP);
       if (runDebug)
       {
-         showImgMag(dataset->objF,"objF");
-         
-         // seems to work
-         showImgMag(currImg->Objfcrop,"Objfcrop");
-         //printComplexPixelValue(currImg->Objfcrop,"Objfcrop",debugPxVal); 
-         //maxComplexReal(currImg->Objfcrop,"Objfcrop");
-         
-         // seems to work
-         showImgMag(currImg->ObjfcropP,"ObjfcropP");
-         //printComplexPixelValue(currImg->ObjfcropP,"ObjfcropP",debugPxVal);
-         //maxComplexReal(currImg->ObjfcropP,"ObjfcropP");
+         std::cout << "NEW LED" <<std::endl;
+         showImgFourier(currImg->Objfcrop,"currImg->Objfcrop");
+         showImgFourier(currImg->ObjfcropP,"currImg->ObjfcropP");
+         showImgObject(currImg->ObjcropP,"currImg->ObjcropP");
       }
-      
-      //dft(currImg->ObjfcropP, currImg->ObjcropP, DFT_INVERSE | DFT_SCALE); // Real-space of object
-      ifft2(currImg->ObjfcropP,currImg->ObjcropP);
-      if(runDebug)
-      {
-           showImgMag(currImg->ObjcropP,"ObjcropP");
-           //printComplexPixelValue(currImg->ObjcropP,"ObjcropP",debugPxVal);
-           maxComplexReal(currImg->ObjcropP,"ObjcropP");
-           }
-      
+       
       // Replace Amplitude
       currImg->Image.convertTo(tmpMat1,CV_64FC1);
-      planes[0] = fftShift(tmpMat1); // Need to FFTShift for proper updating
+      planes[0] = tmpMat1;
       planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
       cv::merge(planes,2,tmpMat1);
       cv::sqrt(tmpMat1,tmpMat2); // Works because tmpMat is real-valued (complex portion is zero)
-      if(runDebug)
-        showImgMag(tmpMat1,"Replaced Amplitude, before");
-        
+      
       complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
       complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
       complexMultiply(tmpMat1, tmpMat2 ,tmpMat3);
-      //dft(tmpMat3,currImg->Objfup, DFT_COMPLEX_OUTPUT);
       fft2(tmpMat3,currImg->Objfup);
       
       if(runDebug)
       {
-           showImgMag(currImg->Objfup,"Objfup");
-           //printComplexPixelValue(currImg->Objfup,"Objfup",debugPxVal);
-           maxComplexReal(currImg->Objfup,"Objfup");
+           showImgObject(tmpMat2,"Amplitude of Input Image");
+           showImgObject(tmpMat3,"Image with amplitude   replaced");
+           showImgFourier(currImg->Objfup,"currImg->Objfup");
       }
+      
       ///////// Alternating Projection Method - Object ///////////
       // MATLAB: Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) = Objf(cropystart(j):cropyend(j),cropxstart(j):cropxend(j)) + abs(Pupil).*conj(Pupil).*(Objfup-ObjfcropP)/max(abs(Pupil(:)))./(abs(Pupil).^2+delta2);
       
@@ -652,21 +698,42 @@ void run(FPM_Dataset * dataset)
       denomSum = pupil_abs_sq + dataset->delta2;
       complexDivide(numerator, denomSum * pupil_abs_max, tmpMat2);
       
+      if(runDebug)
+      {
+           showImgFourier(numerator,"Object update Numerator");
+           showImgFourier(tmpMat2,"Object update Denominator");
+      }
+      
       Mat objF_centered;
       objF_centered = fftShift(dataset->objF);
       
       Mat objF_cropped = cv::Mat(objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart, dataset->Np, dataset->Np));
       tmpMat1 = fftShift(tmpMat2) + objF_cropped;
+      
+      if(runDebug)
+      {
+           showImgFourier(objF_cropped,"Origional Object Spectrum to be updated");
+           showImgFourier(fftShift(tmpMat2),"Object spectrum update incriment");
+      }
 
       // Replace the region in objF
       tmpMat1.copyTo(cv::Mat(objF_centered, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
       dataset->objF = fftShift(objF_centered);
       
+      if(runDebug)
+      {
+           showImgFourier(fftShift(tmpMat1),"Cropped updated object spectrum");
+           showImgFourier(dataset->objF,"Full updated object spectrum");
+      }
+      
       ////// PUPIL UPDATE ///////
       // Numerator 
-      complexAbs(currImg->Objfcrop,Objfcrop_abs);
+      //showImgFourier(currImg->Objfcrop,"currImg->Objfcrop");
+      complexAbs(currImg->Objfcrop, Objfcrop_abs);
       complexAbs(dataset->objF, Objf_abs);
-      complexConj(currImg->Objfcrop, Objfcrop_conj);
+      //showImgFourier(dataset->objF,"dataset->objF");
+      
+      complexConj(currImg->Objfcrop, Objfcrop_conj); 
       complexMultiply(Objfcrop_abs, Objfcrop_conj, tmpMat1);
       complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
       
@@ -678,15 +745,15 @@ void run(FPM_Dataset * dataset)
       complexDivide(numerator, denomSum * Objf_abs_max, tmpMat2);
       complexMultiply(tmpMat2,dataset->pupilSupport, tmpMat2);
       
-      dataset->pupil = dataset->pupil + tmpMat2;
+      dataset->pupil += tmpMat2; 
       }
       cout<<"Iteration " << itr << " Completed!" <<endl;
       dft(dataset->objF ,dataset->objCrop, DFT_INVERSE | DFT_SCALE);
     
    }
-     showImgMag((dataset->objCrop), "Object");
-     showImgMag((dataset->objF),"Object Spectrum");
-     showImgMag((dataset->pupil),"Pupil");
+     showImgObject((dataset->objCrop), "Object");
+     showImgFourier((dataset->objF),"Object Spectrum");
+     showImgFourier((dataset->pupil),"Pupil");
       //showImgMag(fftShift(dataset->pupil),"Pupil"); 
 }
 
@@ -737,7 +804,7 @@ int main(int argc, char** argv )
    mDataset.Mlarge = mDataset.Mcrop * resImprovementFactor;
    mDataset.ps = mDataset.ps_eff / (float)resImprovementFactor;
    mDataset.delta1 = 5;
-   mDataset.delta2 = 1000;
+   mDataset.delta2 = 100;
    
    /* TESTING COMPLEX MAT FUNCTIONS 
    Mat testMat1;
