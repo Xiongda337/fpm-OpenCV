@@ -1,0 +1,5 @@
+git clone https://github.com/jrfonseca/gprof2dot.git
+sudo apt-get install graphviz
+valgrind --tool=callgrind ./fpmMain
+../gprof2dot/gprof2dot.py -f callgrind callgrind.out.x | dot -Tsvg -o output.svg
+
