@@ -38,6 +38,9 @@ int loadDataset(FPM_Dataset *dataset) {
 	FPMimg tmpFPMimg;
 	tmpFPMimg.Image = Mat::zeros(dataset->Np, dataset->Np, CV_8UC1);
 	
+	clock_t t1,t2;
+	t1=clock();
+	
 	// Initialize array of image objects, since we don't know exactly what order imread will read in images. First (0th) element is a dummy so we can access these using the led # directly
 	for (int16_t ledIdx = 0; ledIdx <= dataset->ledCount; ledIdx++)
 	{
@@ -165,6 +168,10 @@ int loadDataset(FPM_Dataset *dataset) {
          cout << "LED# " << led << " With NA of "<< dataset->illuminationNAList.at(led) << " is ordered at: " << dataset->sortedIndicies.at(led) << " with a bg val of " <<dataset->imageStack.at(led).bg_val << endl;
       }
       */
+      
+     t2=clock();
+     float diff (((float)t2-(float)t1) / CLOCKS_PER_SEC);
+     cout<<"Image loading Completed (Time: " << diff << " sec)"<<endl;
 	  return num_images;
 
 	} else {
@@ -177,15 +184,19 @@ int loadDataset(FPM_Dataset *dataset) {
 
 void run(FPM_Dataset * dataset)
 {
+      
+   clock_t t1,t2,t3,t4;
+   t3 = clock();
    // Make dummy pointers to save space
    Mat * objF = &dataset->objF;
    
-   
    // Initilize Matricies
    Mat tmpMat1, tmpMat2, tmpMat3;
+   Mat objF_centered;
    Mat complexI, pupilAbs, pupilConj, objfcrop_abs, objfcrop_conj;
    Mat Objfcrop_abs; Mat Objfcrop_abs_sq; Mat Objf_abs; Mat Objfcrop_conj; Mat Objfcrop_abs_conj;
    Mat planes[] = {Mat::zeros(dataset->Np,dataset->Np, CV_64F), Mat::zeros(dataset->Np,dataset->Np, CV_64F)};
+   Mat objectAmp = Mat::zeros(dataset->Np,dataset->Np, CV_64FC2);
    Mat pupil_abs; Mat pupil_abs_sq; Mat pupil_conj; Mat numerator; Mat denomSum;
    double q, pupilMax, p, objf_max, Objf_abs_max;
    FPMimg * currImg;
@@ -222,8 +233,7 @@ void run(FPM_Dataset * dataset)
     
    // Shift to un-fftshifted position
    dataset->objF = fftShift(dataset->objF);
-   
-   clock_t t1,t2;
+
 
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
@@ -237,11 +247,10 @@ void run(FPM_Dataset * dataset)
          currImg = &dataset->imageStack.at(ledNum);
         
          // Update Fourier space, multply by pupil (P * O)
-         tmpMat2 = fftShift(dataset->objF); // Shifted Object spectrum (at center)
-         currImg->Objfcrop = fftShift(tmpMat2(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np))); // Take ROI from shifted object spectrum
+         objF_centered = fftShift(dataset->objF); // Shifted Object spectrum (at center)
+         currImg->Objfcrop = fftShift(objF_centered(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np, dataset->Np))); // Take ROI from shifted object spectrum
          
          complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
-         //tmpMat2 = ifftShift(currImg->ObjfcropP);
          ifft2(currImg->ObjfcropP,currImg->ObjcropP);
          if (runDebug)
          {
@@ -250,22 +259,28 @@ void run(FPM_Dataset * dataset)
             showComplexImg(currImg->ObjfcropP, SHOW_COMPLEX_MAG, "currImg->ObjfcropP");
             showComplexImg(currImg->ObjcropP, SHOW_COMPLEX_COMPONENTS, "currImg->ObjcropP");
          }
-          
-         // Replace Amplitude
-         currImg->Image.convertTo(tmpMat1,CV_64FC1);
-         planes[0] = tmpMat1;
-         planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
-         cv::merge(planes,2,tmpMat1);
-         cv::sqrt(tmpMat1,tmpMat2); // Works because tmpMat is real-valued (complex portion is zero)
-         
+
+	      // Replace Amplitude (using pointer iteration)
+			for(int i = 0; i < dataset->Np; i++) // loop through y
+			{
+			 const uint16_t* m_i = currImg->Image.ptr<uint16_t>(i);  // Input
+			 double* o_i = objectAmp.ptr<double>(i);   // Output
+			 
+			 for(int j = 0; j < dataset->Np; j++)
+			 {
+				  o_i[j*2] = sqrt((double) m_i[j]); // Real
+				  o_i[j*2+1] = 0.0; // Imaginary
+			 }
+			}
+	
          complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
          complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
-         complexMultiply(tmpMat1, tmpMat2 ,tmpMat3);
+         complexMultiply(tmpMat1, objectAmp ,tmpMat3);
          fft2(tmpMat3,currImg->Objfup);
          
          if(runDebug)
          {
-              showComplexImg(tmpMat2, SHOW_COMPLEX_COMPONENTS,"Amplitude of Input Image");
+              showComplexImg(objectAmp, SHOW_COMPLEX_COMPONENTS,"Amplitude of Input Image");
               showComplexImg(tmpMat3, SHOW_COMPLEX_COMPONENTS,"Image with amplitude   replaced");
               showComplexImg(currImg->Objfup,SHOW_COMPLEX_MAG,"currImg->Objfup");
          }
@@ -291,8 +306,7 @@ void run(FPM_Dataset * dataset)
               showComplexImg(numerator, SHOW_COMPLEX_MAG, "Object update Numerator");
               showComplexImg(tmpMat2, SHOW_COMPLEX_MAG, "Object update Denominator");
          }
-         
-         Mat objF_centered;
+        
          objF_centered = fftShift(dataset->objF);
          
          Mat objF_cropped = cv::Mat(objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart, dataset->Np, dataset->Np));
@@ -313,7 +327,7 @@ void run(FPM_Dataset * dataset)
               showComplexImg(fftShift(tmpMat1),SHOW_COMPLEX_MAG,"Cropped updated object spectrum");
               showComplexImg(dataset->objF,SHOW_COMPLEX_MAG,"Full updated object spectrum");
          }
-         
+
          ////// PUPIL UPDATE ///////
          // Numerator 
          complexAbs(currImg->Objfcrop, Objfcrop_abs);
@@ -330,6 +344,7 @@ void run(FPM_Dataset * dataset)
          complexMultiply(tmpMat2,dataset->pupilSupport, tmpMat2);
          
          dataset->pupil += tmpMat2; 
+         
       }
       t2=clock();
       float diff (((float)t2-(float)t1) / CLOCKS_PER_SEC);
@@ -339,6 +354,9 @@ void run(FPM_Dataset * dataset)
      //showImgObject((dataset->objCrop), "Object");
      //showImgFourier((dataset->objF),"Object Spectrum");
      //showImgObject(fftShift(dataset->pupil),"Pupil");
+     t4=clock();
+     float diff (((float)t4-(float)t3) / CLOCKS_PER_SEC);
+     cout<<"FP Processing Completed (Time: " << diff << " sec)"<<endl;
      
      showComplexImg(dataset->objF, SHOW_COMPLEX_MAG, "Object Spectrum");
      showComplexImg(dataset->objCrop, SHOW_COMPLEX_COMPONENTS, "Object");
@@ -350,7 +368,7 @@ int main(int argc, char** argv )
    // Parameters from the .m file
    uint16_t Np = 90;
    FPM_Dataset mDataset;
-   mDataset.datasetRoot = "/home/zfphil/Dropbox/FP_mono_nofilter/";
+   mDataset.datasetRoot = "/home/zfphil/Dropbox/Repository/Datasets/FP_mono_nofilter/";
    mDataset.ledCount = 508;
    mDataset.pixelSize = 6.5;
    mDataset.objectiveMag = 4*2;
@@ -361,7 +379,7 @@ int main(int argc, char** argv )
    mDataset.lambda = 0.5;
    mDataset.ps_eff = mDataset.pixelSize / (float) mDataset.objectiveMag;
    mDataset.du= (1/mDataset.ps_eff)/(float) Np;
-   cout << mDataset.du << endl;
+   std::cout << "Dataset Root: " << mDataset.datasetRoot << std::endl;
    
    char fileName[FILENAME_LENGTH];
    sprintf(fileName,"%s%04d.tif",filePrefix.c_str(),mDataset.centerLED);
@@ -393,6 +411,8 @@ int main(int argc, char** argv )
    mDataset.ps = mDataset.ps_eff / (float)resImprovementFactor;
    mDataset.delta1 = 5;
    mDataset.delta2 = 10;
+   
+   mDataset.itrCount = 10;
    
    /* TESTING COMPLEX MAT FUNCTIONS 
    Mat testMat1;
