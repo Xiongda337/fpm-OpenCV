@@ -12,7 +12,7 @@ fpmMain.cpp
 #include <dirent.h>
 #include <fstream>
 #include <vector>
-#include "cvComplex.h"
+#include <cvComplex.h>
 #include "fpmMain.h"
 
 //#include "include/rapidjson"
@@ -209,7 +209,7 @@ void run(FPM_Dataset * dataset)
    cv::circle(planes[0], center, naRadius ,cv::Scalar(1.0), -1, 8, 0);
    
    // FFTshift the pupil so it is consistant with object FT   
-   planes[0] = fftShift(planes[0]);
+   fftShift(planes[0],planes[0]);
    
    merge(planes, 2, dataset->pupil);
    dataset->pupilSupport = dataset->pupil.clone();
@@ -222,9 +222,10 @@ void run(FPM_Dataset * dataset)
    merge(planes, 2, complexI);
    
    fft2(complexI, complexI);
-   complexI = fftShift(complexI); // Shift to center
-   complexMultiply(complexI,fftShift(dataset->pupilSupport),complexI);
-   
+
+   complexMultiply(complexI,dataset->pupilSupport,complexI);
+   fftShift(complexI,complexI);
+
    planes[0] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
    planes[1] = Mat::zeros(dataset->Nlarge,dataset->Mlarge, CV_64F);
    merge(planes,2,dataset->objF);
@@ -232,7 +233,7 @@ void run(FPM_Dataset * dataset)
    complexI.copyTo(cv::Mat(dataset->objF, cv::Rect((int16_t)round(dataset->Mlarge/2) - (int16_t)round(dataset->Ncrop/2),(int16_t)round(dataset->Mlarge/2) - (int16_t)round(dataset->Ncrop/2),dataset->Np,dataset->Np)));
     
    // Shift to un-fftshifted position
-   dataset->objF = fftShift(dataset->objF);
+   fftShift(dataset->objF,dataset->objF);
 
 
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
@@ -247,8 +248,8 @@ void run(FPM_Dataset * dataset)
          currImg = &dataset->imageStack.at(ledNum);
         
          // Update Fourier space, multply by pupil (P * O)
-         objF_centered = fftShift(dataset->objF); // Shifted Object spectrum (at center)
-         currImg->Objfcrop = fftShift(objF_centered(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np, dataset->Np))); // Take ROI from shifted object spectrum
+         fftShift(dataset->objF,objF_centered); // Shifted Object spectrum (at center)
+         fftShift(objF_centered(cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np, dataset->Np)),currImg->Objfcrop); // Take ROI from shifted object spectrum
          
          complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
          ifft2(currImg->ObjfcropP,currImg->ObjcropP);
@@ -307,24 +308,29 @@ void run(FPM_Dataset * dataset)
               showComplexImg(tmpMat2, SHOW_COMPLEX_MAG, "Object update Denominator");
          }
         
-         objF_centered = fftShift(dataset->objF);
+         fftShift(dataset->objF,objF_centered) ;
          
          Mat objF_cropped = cv::Mat(objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart, dataset->Np, dataset->Np));
-         tmpMat1 = fftShift(tmpMat2) + objF_cropped;
+         fftShift(tmpMat2,tmpMat1);
+         tmpMat1+= objF_cropped;
          
          if(runDebug)
          {
               showComplexImg(objF_cropped,SHOW_COMPLEX_MAG,"Origional Object Spectrum to be updated");
-              showComplexImg(fftShift(tmpMat2),SHOW_COMPLEX_MAG,"Object spectrum update incriment");
+              Mat shiftedSpectrum;
+              fftShift(tmpMat2,shiftedSpectrum);
+              showComplexImg(shiftedSpectrum,SHOW_COMPLEX_MAG,"Object spectrum update incriment");
          }
 
          // Replace the region in objF
          tmpMat1.copyTo(cv::Mat(objF_centered, cv::Rect(currImg->cropXStart,currImg->cropYStart,dataset->Np,dataset->Np)));
-         dataset->objF = fftShift(objF_centered);
+         fftShift(objF_centered,dataset->objF);
          
          if(runDebug)
          {
-              showComplexImg(fftShift(tmpMat1),SHOW_COMPLEX_MAG,"Cropped updated object spectrum");
+            Mat shiftedObj;
+            fftShift(tmpMat1,shiftedObj);
+             showComplexImg(shiftedObj,SHOW_COMPLEX_MAG,"Cropped updated object spectrum");
               showComplexImg(dataset->objF,SHOW_COMPLEX_MAG,"Full updated object spectrum");
          }
 
@@ -360,7 +366,8 @@ void run(FPM_Dataset * dataset)
      
      showComplexImg(dataset->objF, SHOW_COMPLEX_MAG, "Object Spectrum");
      showComplexImg(dataset->objCrop, SHOW_COMPLEX_COMPONENTS, "Object");
-     showComplexImg(fftShift(dataset->pupil), SHOW_COMPLEX_COMPONENTS, "Pupil");
+     fftShift(dataset->pupil,tmpMat1);
+     showComplexImg(tmpMat1, SHOW_COMPLEX_COMPONENTS, "Pupil");
 }
 
 int main(int argc, char** argv )
