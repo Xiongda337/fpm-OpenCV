@@ -215,6 +215,7 @@ void runFPM(FPM_Dataset * dataset)
    dataset->pupilSupport = dataset->pupil.clone();
    
    // Initialize FT of reconstructed object with center led image
+
    planes[0] = Mat_<double>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image);
    cv::sqrt(planes[0], planes[0]); // Convert to amplitude
    planes[1] = Mat::zeros(dataset->Np,dataset->Np, CV_64F);
@@ -232,7 +233,8 @@ void runFPM(FPM_Dataset * dataset)
     
    // Shift to un-fftshifted position
    fftShift(dataset->objF,dataset->objF);
-   
+
+
    for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
    {
       t1=clock();
@@ -370,7 +372,7 @@ int main(int argc, char** argv )
    // Parameters from the .m file
    uint16_t Np = 90;
    FPM_Dataset mDataset;
-   mDataset.datasetRoot = "/Users/zfphil/Dropbox/Repository/Datasets/FP_mono_nofilter/";
+   mDataset.datasetRoot = "/home/zfphil/Dropbox/Repository/Datasets/FP_mono_nofilter/";
    mDataset.ledCount = 508;
    mDataset.pixelSize = 6.5;
    mDataset.objectiveMag = 4*2;

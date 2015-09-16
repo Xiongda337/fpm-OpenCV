@@ -9,5 +9,7 @@
     "centerLED" : 249,
     "lambda" : 0.5,
     "cropSizeX" : 90,
-    "cropSizeY" : 90
+    "cropSizeY" : 90,
+    "filePrefix" : "iLED_",
+    "fileExtension" : ".tif"
 }

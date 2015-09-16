@@ -1,4 +1,6 @@
+
 #include <time.h>
+#include <opencv2/contrib/contrib.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -42,17 +44,19 @@ class FPMimg{
 
 class FPM_Dataset{
   public:
-        std::string                datasetRoot;
-        std::vector<FPMimg>   imageStack;
-        uint16_t              ledCount;
+        std::string                datasetRoot;   // Folder to search for images (including slash at end)
+        std::string           filePrefix;         // Image file prefix (characters before led #)
+        std::string           fileExtension;      // Image file extension
+        std::vector<FPMimg>   imageStack;         // List of image objects
+        uint16_t              ledCount;           // Number of LEDs (int)
         float                 pixelSize;           // pixel size in microns
-        float                 objectiveMag;
-        float                 objectiveNA;
-        float                 maxIlluminationNA;
+        float                 objectiveMag;       // Objective Magnification
+        float                 objectiveNA;        // Objective NA
+        float                 maxIlluminationNA;  // Illumination NA
         float                 lambda;              // wavelength in microns
         bool                  color;                // flag for data acquired on color camera
         int16_t               centerLED = 249;     // Closest LED to center of Array
-        int16_t               cropX;
+        int16_t               cropX;              
         int16_t               cropY;
         int16_t               Np;                  // ROI Size
         int16_t               Np_padded;           // Zero-padded ROI
@@ -106,6 +110,6 @@ std::vector<size_t> sort_indexes(const std::vector<T> &v) {
 
 // Function Definitions
 int loadDataset(FPM_Dataset *dataset);
-void runFPM(FPM_Dataset * dataset);
+void run(FPM_Dataset * dataset);
 
 #endif
