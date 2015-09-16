@@ -1,0 +1,13 @@
+{
+    "datasetRoot" : "/Users/zfphil/Dropbox/Repository/Datasets/FP_mono_nofilter/",
+    "ledCount" : 508,
+    "isColor" : false,
+    "pixelSize": 6.5,
+    "objectiveMag" : 8,
+    "objectiveNA" : 0.2,
+    "maxIlluminationNA" : 0.7604,
+    "centerLED" : 249,
+    "lambda" : 0.5,
+    "cropSizeX" : 90,
+    "cropSizeY" : 90
+}

@@ -14,8 +14,10 @@ fpmMain.cpp
 #include <vector>
 #include <cvComplex.h>
 #include "fpmMain.h"
+#include "include/json.h"
+#include "include/json-forwards.h"
 
-//#include "include/rapidjson"
+// TODO - Move these to json file
 #include "domeHoleCoordinates.h"
 
 using namespace std;
@@ -58,7 +60,7 @@ int loadDataset(FPM_Dataset *dataset) {
 		  //add ent to list
     		  string fileName = ent->d_name;
           /* Get data from file name, if name is right format.*/
-    		  if (fileName.compare(".") != 0 && fileName.compare("..") != 0 && (strcmp (".tif", &(ent->d_name[strlen( ent->d_name) - 4])) == 0)) {
+    		  if (fileName.compare(".") != 0 && fileName.compare("..") != 0 && (strcmp (".tiff", &(ent->d_name[strlen( ent->d_name) - 5])) == 0)) {
     		      string holeNum = fileName.substr(fileName.find(filePrefix)+filePrefix.length(),FILE_HOLENUM_DIGITS);
                FPMimg currentImage;
     		      currentImage.led_num = atoi(holeNum.c_str());
@@ -372,24 +374,46 @@ void run(FPM_Dataset * dataset)
 
 int main(int argc, char** argv )
 {
-   // Parameters from the .m file
-   uint16_t Np = 90;
+    if (argc < 1){
+        cout << "Error - Not enough inputs.\n  USAGE: ./fpmMain datasetJson_filename" << std::endl; return 0;};
+    std::string datasetJsonFileName = argv[1];
+    // Experimental - loading parameters from json file
+    Json::Value datasetJson;   // will contains the root value after parsing.
+    Json::Reader reader;
+    ifstream fIn(datasetJsonFileName);
+    bool parsingSuccessful = reader.parse(fIn, datasetJson );
+    if ( !parsingSuccessful )
+    {
+       //  report to the user the failure and their locations in the document.
+        std::cout  << "Failed to parse configuration\n" << reader.getFormattedErrorMessages();
+        return 0;
+    }
+            
+    // Get the value of the member of root named 'encoding', return 'UTF-8' if there is no
+    // such member.
+    std::cout << " Dataset Root is: " <<datasetJson.get("datasetRoot", "." ).asString() << std::endl;;
+    // Get the value of the member of root named 'encoding', return a 'null' value if
+    // there is no such member.
+    std::cout << " LED Count is: " <<  datasetJson.get("ledCount", 508).asInt() <<std::endl;;
+    std::cout << " Color Image?: " << datasetJson.get("isColor", false).asBool() << std::endl;
+    // Parameters from the .m file
+   uint16_t Np = datasetJson.get("cropSizeX",90).asInt();
    FPM_Dataset mDataset;
-   mDataset.datasetRoot = "/home/zfphil/Dropbox/Repository/Datasets/FP_mono_nofilter/";
-   mDataset.ledCount = 508;
-   mDataset.pixelSize = 6.5;
-   mDataset.objectiveMag = 4*2;
-   mDataset.objectiveNA = 0.2;
-   mDataset.maxIlluminationNA = 0.7604;
-   mDataset.color = false;
-   mDataset.centerLED = 249;
-   mDataset.lambda = 0.5;
+   mDataset.datasetRoot = datasetJson.get("datasetRoot", "." ).asString();
+   mDataset.ledCount = datasetJson.get("ledCount",508).asInt();
+   mDataset.pixelSize = datasetJson.get("pixelSize",6.5).asDouble();
+   mDataset.objectiveMag = datasetJson.get("objectiveMag",10).asDouble();
+   mDataset.objectiveNA = datasetJson.get("objectiveNA",0.25).asDouble();
+   mDataset.maxIlluminationNA = datasetJson.get("maxIlluminationNA",0.7).asDouble();
+   mDataset.color = datasetJson.get("isColor",false).asBool();
+   mDataset.centerLED = datasetJson.get("centerLED",249).asInt();
+   mDataset.lambda = datasetJson.get("lambda",0.5).asDouble();
    mDataset.ps_eff = mDataset.pixelSize / (float) mDataset.objectiveMag;
    mDataset.du= (1/mDataset.ps_eff)/(float) Np;
    std::cout << "Dataset Root: " << mDataset.datasetRoot << std::endl;
    
    char fileName[FILENAME_LENGTH];
-   sprintf(fileName,"%s%04d.tif",filePrefix.c_str(),mDataset.centerLED);
+   sprintf(fileName,"%s%03d.tiff",filePrefix.c_str(),mDataset.centerLED);
    cout << mDataset.datasetRoot + fileName <<endl;
 
    Mat centerImg = imread(mDataset.datasetRoot + fileName, -1);
