@@ -14,6 +14,7 @@ fpmMain.cpp
 #include <vector>
 #include "cvComplex.h"
 #include "fpmMain.h"
+#include "include/json.h"
 
 //#include "include/rapidjson"
 #include "include/domeHoleCoordinates.h"
@@ -58,8 +59,8 @@ int loadDataset(FPM_Dataset *dataset) {
 		  //add ent to list
     		  string fileName = ent->d_name;
           /* Get data from file name, if name is right format.*/
-    		  if (fileName.compare(".") != 0 && fileName.compare("..") != 0 && (strcmp (".tif", &(ent->d_name[strlen( ent->d_name) - 4])) == 0)) {
-    		      string holeNum = fileName.substr(fileName.find(filePrefix)+filePrefix.length(),FILE_HOLENUM_DIGITS);
+    		  if (fileName.compare(".") != 0 && fileName.compare("..") != 0 && (strcmp (dataset->fileExtension.c_str(), &(ent->d_name[strlen( ent->d_name) - dataset->fileExtension.length()])) == 0)) {
+    		      string holeNum = fileName.substr(fileName.find(dataset->filePrefix)+dataset->filePrefix.length(),FILE_HOLENUM_DIGITS);
                FPMimg currentImage;
     		      currentImage.led_num = atoi(holeNum.c_str());
     		      fullImg = imread(dataset->datasetRoot + "/" + fileName, CV_LOAD_IMAGE_ANYDEPTH);
@@ -368,173 +369,57 @@ void runFPM(FPM_Dataset * dataset)
 int main(int argc, char** argv )
 {
    // Parameters from the .m file
-   uint16_t Np = 90;
+  Json::Value datasetJson;
+  Json::Reader reader;
+  std::cout << argc <<std::endl; 
+  if (argc <3 ){
+      std::cout << "ERROR: Not enough input argumants.\n Usage: ./fpmMain dataset.json" <<std::endl; return 0;
+  }
+  ifstream jsonFile(argv[1]);
+  reader.parse(jsonFile, datasetJson);
+   // Parameters from the .m file
    FPM_Dataset mDataset;
-   mDataset.datasetRoot = "/Users/zfphil/Dropbox/Repository/Datasets/FP_mono_nofilter/";
-   mDataset.ledCount = 508;
-   mDataset.pixelSize = 6.5;
-   mDataset.objectiveMag = 4*2;
-   mDataset.objectiveNA = 0.2;
-   mDataset.maxIlluminationNA = 0.7604;
-   mDataset.color = false;
-   mDataset.centerLED = 249;
-   mDataset.lambda = 0.45; // um
+   
+   mDataset.filePrefix = datasetJson.get("filePrefix","iLED_").asString();
+   mDataset.fileExtension = datasetJson.get("fileExtension",".tif").asString();
+   mDataset.Np = datasetJson.get("cropSizeX",90).asInt();
+   mDataset.datasetRoot = datasetJson.get("datasetRoot",".").asString();
+   mDataset.ledCount = datasetJson.get("ledCount",508).asInt();
+   mDataset.pixelSize = datasetJson.get("pixelSize",6.5).asDouble();
+   mDataset.objectiveMag = datasetJson.get("objectiveMat",8).asDouble();
+   mDataset.objectiveNA = datasetJson.get("objectiveNA",0.2).asDouble();
+   mDataset.maxIlluminationNA = datasetJson.get("maxIlluminationNA",0.7604).asDouble();
+   mDataset.color = datasetJson.get("isColor",false).asBool();
+   mDataset.centerLED = datasetJson.get("centerLED",249).asInt();
+   mDataset.lambda = datasetJson.get("lambda",0.5).asDouble();
    mDataset.ps_eff = mDataset.pixelSize / (float) mDataset.objectiveMag;
-   mDataset.du= (1/mDataset.ps_eff)/(float) Np;
+   mDataset.du= (1/mDataset.ps_eff)/(float) mDataset.Np;
    std::cout << "Dataset Root: " << mDataset.datasetRoot << std::endl;
    
    char fileName[FILENAME_LENGTH];
-   sprintf(fileName,"%s%04d.tif",filePrefix.c_str(),mDataset.centerLED);
+   sprintf(fileName,"%s%04d.tif",datasetJson.get("filePrefix","iLED_").asString().c_str(),mDataset.centerLED);
    cout << mDataset.datasetRoot + fileName <<endl;
-
-   Mat centerImg = imread(mDataset.datasetRoot + fileName, -1);
    
-   int16_t cropX = 1248;
-   int16_t cropY = 1020;
-   //cv::Mat croppedRef(centerImg, cv::Rect(cropX,cropY,Np,Np));
-  // showImg(croppedRef);
+   mDataset.cropX = datasetJson.get("cropX",1248).asInt();
+   mDataset.cropY = datasetJson.get("cropY",1020).asInt();
    
-   mDataset.Np = Np;
-   mDataset.cropX = cropX;
-   mDataset.cropY = cropY;
-   
-   mDataset.bk1cropX = 1170;
-   mDataset.bk1cropY = 1380; 
-   mDataset.bk2cropX = 1080; 
-   mDataset.bk2cropY = 700; 
+   mDataset.bk1cropX = datasetJson.get("bk1cropX",1).asInt();
+   mDataset.bk1cropY = datasetJson.get("bk1cropY",1).asInt();
+   mDataset.bk2cropX = datasetJson.get("bk2cropX",1).asInt();
+   mDataset.bk2cropY = datasetJson.get("bk2cropY",1).asInt();
    
    int16_t resImprovementFactor = (int16_t) ceil(2*mDataset.ps_eff*(mDataset.maxIlluminationNA+mDataset.objectiveNA)/mDataset.lambda); // Ask Li-Hao what this does exactly, and what to call it.
-   mDataset.bgThreshold = 1000;
+   mDataset.bgThreshold = datasetJson.get("bgThresh",1000).asInt();
    mDataset.Mcrop = mDataset.Np;
    mDataset.Ncrop = mDataset.Np;
    mDataset.Nimg  = mDataset.ledCount;
    mDataset.Nlarge = mDataset.Ncrop * resImprovementFactor;
    mDataset.Mlarge = mDataset.Mcrop * resImprovementFactor;
    mDataset.ps = mDataset.ps_eff / (float)resImprovementFactor;
-   mDataset.delta1 = 5;
-   mDataset.delta2 = 10;
-   
-   mDataset.itrCount = 10;
-   
-   /* TESTING COMPLEX MAT FUNCTIONS 
-   Mat testMat1;
-   Mat testMat2;
-   Mat testMat3;
-   Mat testMat4;
-   
-   Mat conj1; Mat abs1; Mat tmp1; Mat numeratorMat; Mat abssq; Mat abs2;
-   
-   Mat test1[] = {Mat::ones(3, 3, CV_64F)*-1, Mat::ones(3, 3, CV_64F)*2};
-   Mat test2[] = {Mat::ones(3, 3, CV_64F)*3,Mat::ones(3, 3, CV_64F)*-4};
-   Mat test3[] = {Mat::ones(3, 3, CV_64F)*5,Mat::ones(3, 3, CV_64F)*-6};
-   Mat test4[] = {Mat::ones(3, 3, CV_64F)*7,Mat::ones(3, 3, CV_64F)*-8};
-   
-   Mat out[] = {Mat::ones(3, 3, CV_64F)*7,Mat::ones(3, 3, CV_64F)*-8};
-   
-   cv::merge(test1,2,testMat1);
-   cv::merge(test2,2,testMat2);
-   cv::merge(test3,2,testMat3);
-   cv::merge(test4,2,testMat4);
-   Mat outputMat; Mat tmp;
-
-   complexAbs(testMat1,abs1);
-   complexAbs(testMat4,abs2);
-   complexConj(testMat1,conj1);
-   complexMultiply(abs1,conj1,tmp1);
-   
-   // good here
-   
-   complexMultiply(testMat2-testMat3,tmp1,numeratorMat);
-   
-   double p; double max; double delta1 = 1000;
-   cv::minMaxLoc(abs2, &p, &max);
-   cout << "abs2 Max: " << max << endl;
-   
-   complexMultiply(abs1,abs1,abssq);
-
-
-   
-   cv::split(numeratorMat,test1);
-   cout << "numerator (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
-   
-   // NUMERATOR IS GOOD
-   
-   Mat sum2 = (abssq+delta1);
-   
-   cv::split(sum2,test1);
-   cout << "abssq+delta1 = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
-   
-   
-   // NEED TO ADD AND MULTIPLY SEPERATLY
-   cv::split(sum2 * max,test1);
-   cout << "denominator inverse(NORMAL) (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
-   
-   Mat inverse;
-   Mat one1 = Mat::ones(testMat1.rows,testMat1.cols,testMat1.type());
-   complexDivide(one1,sum2 * max,inverse);
-
-   cv::split(inverse,out);
-   cout << "Inverse of Denom (real) = " << endl << " "  << out[0] <<",   (imag) = " << endl << " "  << out[1] << endl << endl;
-   
-      complexDivide(numeratorMat, sum2 * max, outputMat);
-   
-   
-   cv::split(testMat1,test1);
-   cv::split(testMat2,test2);
-   cv::split(testMat3,test3);
-   cv::split(testMat4,test4);
-   
-   cout << "objfcrop 1 (real) = " << endl << " "  << test1[0]<< ",  (imag) = " << endl << " "  << test1[1] << endl << endl;
-   cout << "objfup 2 (real) = " << endl << " "  << test2[0] << ",   (imag) = " << endl << " "  << test2[1] << endl << endl;
-   cout << "objfcropp 3 (real) = " << endl << " "  << test3[0] << ",   (imag) = " << endl << " "  << test3[1] << endl << endl;
-   cout << "objf 4 (real) = " << endl << " "  << test4[0] << ",   (imag) = " << endl << " "  << test4[1] << endl << endl;
-   
-   cv::split(outputMat,out);
-   cout << "Output (real) = " << endl << " "  << out[0] <<",   (imag) = " << endl << " "  << out[1] << endl << endl;
-   
-   */
-   
-   /*
-   Mat planes[] = {Mat::zeros(mDataset.Np,mDataset.Np, CV_64F), Mat::zeros(mDataset.Np,mDataset.Np, CV_64F)};
-   planes[0] = Mat::zeros(mDataset.Np,mDataset.Np, CV_64F);
-   planes[1] = Mat::zeros(mDataset.Np,mDataset.Np, CV_64F);
-   
-   Mat ft; Mat realObj; Mat realObj2;
-   
-
-   float offset = 11;
-   float ctrX = 45;
-   float ctrY = 45;
-   planes[0].at<double>(ctrY,ctrX+offset) = (double)1.00;
-   planes[0].at<double>(ctrY,ctrX-offset) = (double)1.00;
-   
-   //planes[1].at<double>(ctrY+offset,ctrX) = (double) 5.00;
-   //planes[1].at<double>(ctrY-offset,ctrX) = (double)10.00;
-   
-   merge(planes,2,realObj);
-   
-   showImgObject(realObj, "realObj");
-   realObj2 = ifftShift(realObj);
-   //fft2(realObj,ft);
-   cv::dft(realObj2, ft, DFT_COMPLEX_OUTPUT);
-   showImgObject(ft, "FT");
-   //ifft2(ft,realObj2);
-   
-
-   cv::dft(ft,realObj2, DFT_INVERSE | DFT_COMPLEX_OUTPUT | DFT_SCALE); // Real-space of object
-   realObj = fftShift(realObj2);
-   showImgObject(realObj,"Result");
-   */
+   mDataset.delta1 = datasetJson.get("delta1",5).asInt();
+   mDataset.delta2 = datasetJson.get("delta2",10).asInt();
+   mDataset.itrCount = atoi(argv[2]);
    
    loadDataset(&mDataset);
-   
    runFPM(&mDataset);
-   
-   //saveFullDataset(&mDataset, "tmpDataset/");
-   /*
-   showImg(mDataset.imageStack.at(249).Image);
-   imwrite("tmp.tiff",mDataset.imageStack.at(249).Image);
-  // fpmBackgroundSubtraction(&mDataset);
-  */
-   
 }

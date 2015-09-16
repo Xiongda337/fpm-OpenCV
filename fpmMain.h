@@ -42,15 +42,17 @@ class FPMimg{
 
 class FPM_Dataset{
   public:
-        std::string                datasetRoot;
-        std::vector<FPMimg>   imageStack;
-        uint16_t              ledCount;
+        std::string                datasetRoot;    // Dataset location, with trailing "\"
+        std::string           filePrefix;          // Raw data file header (everything before led #)
+        std::string           fileExtension;       // Raw data file extension (e.g. .tif)
+        std::vector<FPMimg>   imageStack;  
+        uint16_t              ledCount;            // Number of LEDs
         float                 pixelSize;           // pixel size in microns
-        float                 objectiveMag;
-        float                 objectiveNA;
-        float                 maxIlluminationNA;
+        float                 objectiveMag;        // Objective Magnification
+        float                 objectiveNA;         // Objective NA
+        float                 maxIlluminationNA;   // Max illumination NA
         float                 lambda;              // wavelength in microns
-        bool                  color;                // flag for data acquired on color camera
+        bool                  color;               // flag for data acquired on color camera
         int16_t               centerLED = 249;     // Closest LED to center of Array
         int16_t               cropX;
         int16_t               cropY;

@@ -23,7 +23,7 @@ LFLAGS =
 # define any libraries to link into executable:
 #   if I want to link in libraries (libx.so or libx.a) I use the -llibname 
 #   option, something like (this will link in libmylib.so and libm.so:
-LIBS = -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_ml -lopencv_video -lopencv_features2d -lopencv_calib3d -lopencv_objdetect -lopencv_contrib -lopencv_legacy -lopencv_stitching -lcvComplex
+LIBS = -lopencv_core -lopencv_imgproc -lopencv_highgui -lcvComplex
 
 # define the C source files
 SRCS = fpmMain.cpp include/jsoncpp.cpp
