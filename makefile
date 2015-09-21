@@ -62,7 +62,7 @@ $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $<  -o $@
 
 clean:
-	$(RM) *.o *~ $(MAIN)
+	rm -rf *.dSYM *.o *~ $(MAIN)
 
 depend: $(SRCS)
 	makedepend $(INCLUDES) $^

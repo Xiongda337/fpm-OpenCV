@@ -107,7 +107,7 @@ std::vector<size_t> sort_indexes(const std::vector<T> &v) {
 }
 
 // Function Definitions
-int loadDataset(FPM_Dataset *dataset);
+int16_t loadFPMDataset(FPM_Dataset *dataset);
 void runFPM(FPM_Dataset * dataset);
 
 #endif
