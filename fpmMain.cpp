@@ -38,7 +38,10 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
   Mat fullImgComplex;
   FPMimg tmpFPMimg;
   tmpFPMimg.Image = Mat::zeros(dataset->Np, dataset->Np, CV_8UC1);
-  
+
+  double angle = dataset->arrayRotation;
+  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos (angle*M_PI/180), -sin (angle*M_PI/180), 0,sin (angle*M_PI/180), cos (angle*M_PI/180), 0, 0, 0, 1);
+
   clock_t t1, t2;
   if (loadImgDebug) {
     t1 = clock();
@@ -49,10 +52,11 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
   // these using the led # directly
   for (int16_t ledIdx = 0; ledIdx <= dataset->ledCount; ledIdx++) {
     dataset->imageStack.push_back(tmpFPMimg);
-    dataset->illuminationNAList.push_back(-1.0);
+    dataset->illuminationNAList.push_back(99.0);
     dataset->NALedPatternStackX.push_back(-1.0);
     dataset->NALedPatternStackY.push_back(-1.0);
   }
+
   if ((dir = opendir(dataset->datasetRoot.c_str())) != NULL) {
     int16_t num_images = 0;
     std::cout << "Loading Images..." << std::endl;
@@ -62,12 +66,31 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
       if (fileName.compare(".") != 0 && fileName.compare("..") != 0 &&
           (strcmp(dataset->fileExtension.c_str(),
                   &(ent->d_name[strlen(ent->d_name) -
-                                dataset->fileExtension.length()])) == 0)) {
+                                dataset->fileExtension.length()])) == 0) &&(
+                              fileName.find(dataset->filePrefix) == 0))
+                              {
         string holeNum = fileName.substr(fileName.find(dataset->filePrefix) +
                                              dataset->filePrefix.length(),
                                          FILE_HOLENUM_DIGITS);
-        FPMimg currentImage;
-        currentImage.led_num = atoi(holeNum.c_str());
+       FPMimg currentImage;
+       currentImage.led_num = atoi(holeNum.c_str());
+
+       Mat holeCoordinates = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
+       holeCoordinates = rotationMatrixZ * holeCoordinates.t();
+       currentImage.sinTheta_x =
+           sin(atan2(holeCoordinates.at<double>(0, 0),
+                     holeCoordinates.at<double>(2, 0)));
+       currentImage.sinTheta_y =
+       sin(atan2(holeCoordinates.at<double>(1, 0),
+                 holeCoordinates.at<double>(2, 0)));
+       currentImage.illumination_na =
+                     sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
+                          currentImage.sinTheta_y * currentImage.sinTheta_y);
+  std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
+         if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
+         {
+
+
         if (dataset->color) {
           fullImg = imread(dataset->datasetRoot + fileName,
                            CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_COLOR);
@@ -87,15 +110,6 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         currentImage.Image = fullImg(cv::Rect(dataset->cropX, dataset->cropY,
                                               dataset->Np, dataset->Np))
                                  .clone();
-        currentImage.sinTheta_x =
-            sin(atan2(domeHoleCoordinates[currentImage.led_num - 1][0],
-                      domeHoleCoordinates[currentImage.led_num - 1][2]));
-        currentImage.sinTheta_y =
-            sin(atan2(domeHoleCoordinates[currentImage.led_num - 1][1],
-                      domeHoleCoordinates[currentImage.led_num - 1][2]));
-        currentImage.illumination_na =
-            sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
-                 currentImage.sinTheta_y * currentImage.sinTheta_y);
 
         cv::Scalar bk1 = cv::mean(fullImg(cv::Rect(
             dataset->bk1cropX, dataset->bk1cropY, dataset->Np, dataset->Np)));
@@ -202,7 +216,10 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
                     << std::endl;
           std::cout << std::endl << std::endl;
         }
+      }else
+        std::cout << "Skipped LED# " << holeNum <<std::endl;
       }
+      dataset->ledUsedCount = num_images;
     }
     closedir(dir);
     if (num_images <= 0) {
@@ -213,12 +230,15 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
     // Sort the Images into the correct order
     int16_t indexIncr = 1;
     for (auto i : sort_indexes(dataset->illuminationNAList)) {
-      dataset->sortedIndicies.push_back(i);
-      dataset->sortedNALedPatternStackX.push_back(
-          dataset->NALedPatternStackX[i]);
-      dataset->sortedNALedPatternStackY.push_back(
-          dataset->NALedPatternStackY[i]);
-      indexIncr++;
+      if (indexIncr <= dataset->ledUsedCount)
+      {
+        dataset->sortedIndicies.push_back(i);
+        dataset->sortedNALedPatternStackX.push_back(
+            dataset->NALedPatternStackX[i]);
+        dataset->sortedNALedPatternStackY.push_back(
+            dataset->NALedPatternStackY[i]);
+        indexIncr++;
+      }
     }
     if (loadImgDebug) {
       t2 = clock();
@@ -300,11 +320,13 @@ void runFPM(FPM_Dataset *dataset) {
   // Shift to un-fftshifted position
   fftShift(dataset->objF, dataset->objF);
 
-  for (int16_t itr = 1; itr <= dataset->itrCount; itr++) {
+  for (int16_t itr = 1; itr <= dataset->itrCount; itr++)
+  {
     t1 = clock();
-    for (int16_t imgIdx = 1; imgIdx <= dataset->ledCount; imgIdx++) //
+    for (int16_t imgIdx = 0; imgIdx < dataset->ledUsedCount; imgIdx++) //
     {
       int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
+
       if (runDebug)
         cout << "Starting LED# " << ledNum << endl;
 
@@ -441,26 +463,26 @@ void runFPM(FPM_Dataset *dataset) {
 }
 
 int main(int argc, char **argv) {
-  // Parameters from the .m file
-  Json::Value datasetJson;
-  Json::Reader reader;
-  std::cout << argc << std::endl;
   if (argc < 3) {
     std::cout
         << "ERROR: Not enough input argumants.\n Usage: ./fpmMain dataset.json"
         << std::endl;
     return 0;
   }
+
+  // The dataset object, which contains all images and experimental parameters
+  FPM_Dataset mDataset;
+
+  // Load parameters from json file
+  Json::Value datasetJson;
+  Json::Reader reader;
   ifstream jsonFile(argv[1]);
   reader.parse(jsonFile, datasetJson);
-  // Parameters from the .m file
-  FPM_Dataset mDataset;
 
   mDataset.filePrefix = datasetJson.get("filePrefix", "iLED_").asString();
   mDataset.fileExtension = datasetJson.get("fileExtension", ".tif").asString();
   mDataset.Np = datasetJson.get("cropSizeX", 90).asInt();
   mDataset.datasetRoot = datasetJson.get("datasetRoot", ".").asString();
-  mDataset.ledCount = datasetJson.get("ledCount", 508).asInt();
   mDataset.pixelSize = datasetJson.get("pixelSize", 6.5).asDouble();
   mDataset.objectiveMag = datasetJson.get("objectiveMat", 8).asDouble();
   mDataset.objectiveNA = datasetJson.get("objectiveNA", 0.2).asDouble();
@@ -471,46 +493,53 @@ int main(int argc, char **argv) {
   mDataset.lambda = datasetJson.get("lambda", 0.5).asDouble();
   mDataset.ps_eff = mDataset.pixelSize / (float)mDataset.objectiveMag;
   mDataset.du = (1 / mDataset.ps_eff) / (float)mDataset.Np;
-  std::cout << "Dataset Root: " << mDataset.datasetRoot << std::endl;
-
-  char fileName[FILENAME_LENGTH];
-  sprintf(fileName, "%s%04d%s", mDataset.filePrefix.c_str(), mDataset.centerLED,
-          mDataset.fileExtension.c_str());
-  cout << mDataset.datasetRoot + fileName << endl;
-
+  mDataset.leadingZeros = datasetJson.get("leadingZeros", false).asBool();
   mDataset.cropX = datasetJson.get("cropX", 1).asInt();
   mDataset.cropY = datasetJson.get("cropY", 1).asInt();
-
+  mDataset.arrayRotation = datasetJson.get("arrayRotation", 0).asInt();
   mDataset.bk1cropX = datasetJson.get("bk1cropX", 1).asInt();
   mDataset.bk1cropY = datasetJson.get("bk1cropY", 1).asInt();
   mDataset.bk2cropX = datasetJson.get("bk2cropX", 1).asInt();
   mDataset.bk2cropY = datasetJson.get("bk2cropY", 1).asInt();
-  
+  mDataset.holeNumberDigits = datasetJson.get("holeNumberDigits",4).asInt();
+
+  std::cout << "Dataset Root: " << mDataset.datasetRoot << std::endl;
+  char fileName[FILENAME_LENGTH];
+  sprintf(fileName, "%s%04d%s", mDataset.filePrefix.c_str(), mDataset.centerLED,
+          mDataset.fileExtension.c_str());
+
+  cout << mDataset.datasetRoot + fileName << endl;
+
   if (loadImgDebug)
   {
     Mat img = imread(mDataset.datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH);
     std::cout << img.size();
-    showImg(img, "g");
     showImg(
     img(cv::Rect(mDataset.cropX, mDataset.cropY, mDataset.Np, mDataset.Np)),
       "Cropped Center Image");
   }
-  int16_t resImprovementFactor = (int16_t)ceil(
+  /*int16_t resImprovementFactor = (int16_t)ceil(
       2 * mDataset.ps_eff *
       (mDataset.maxIlluminationNA + mDataset.objectiveNA) /
       mDataset
-          .lambda); // Ask Li-Hao what this does exactly, and what to call it.
+          .lambda);*/
+
+  int16_t resImprovementFactor = 5;
   mDataset.bgThreshold = datasetJson.get("bgThresh", 1000).asInt();
   mDataset.Mcrop = mDataset.Np;
   mDataset.Ncrop = mDataset.Np;
-  mDataset.Nimg = mDataset.ledCount;
   mDataset.Nlarge = mDataset.Ncrop * resImprovementFactor;
   mDataset.Mlarge = mDataset.Mcrop * resImprovementFactor;
   mDataset.ps = mDataset.ps_eff / (float)resImprovementFactor;
   mDataset.delta1 = datasetJson.get("delta1", 5).asInt();
   mDataset.delta2 = datasetJson.get("delta2", 10).asInt();
   mDataset.itrCount = atoi(argv[2]);
+  mDataset.ledCount = datasetJson.get("ledCount", 508).asInt();
 
+  // Reserve memory for imageStack
+  mDataset.imageStack.reserve(mDataset.ledCount);
+
+  // Load the datastack, and process if we find images
   if(loadFPMDataset(&mDataset) > 0)
     runFPM(&mDataset);
 }

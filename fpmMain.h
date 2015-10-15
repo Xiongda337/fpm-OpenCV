@@ -37,7 +37,7 @@ class FPMimg{
         int16_t cropYEnd;
         int16_t cropXStart;
         int16_t cropXEnd;
-        
+
 };
 
 class FPM_Dataset{
@@ -45,22 +45,25 @@ class FPM_Dataset{
         std::string                datasetRoot;    // Dataset location, with trailing "\"
         std::string           filePrefix;          // Raw data file header (everything before led #)
         std::string           fileExtension;       // Raw data file extension (e.g. .tif)
-        std::vector<FPMimg>   imageStack;  
-        uint16_t              ledCount;            // Number of LEDs
+        std::vector<FPMimg>   imageStack;
+        double                arrayRotation;       // Global Rotaton of array
+        int16_t               holeNumberDigits;    // Number of digits in hole number in filename
+        uint16_t              ledCount;            // Number of LEDs in system (even if we don't use all of them)
+        uint16_t              ledUsedCount;
         float                 pixelSize;           // pixel size in microns
         float                 objectiveMag;        // Objective Magnification
         float                 objectiveNA;         // Objective NA
         float                 maxIlluminationNA;   // Max illumination NA
         float                 lambda;              // wavelength in microns
         bool                  color;               // flag for data acquired on color camera
+        bool                  leadingZeros;        // flag for definint whether or not the filenames have leading zeros
         int16_t               centerLED = 249;     // Closest LED to center of Array
-        int16_t               cropX;
-        int16_t               cropY;
+        int16_t               cropX;               // X position of crop region start
+        int16_t               cropY;               // Y position of crop region start
         int16_t               Np;                  // ROI Size
         int16_t               Np_padded;           // Zero-padded ROI
-        int16_t               Mcrop;
-        int16_t               Ncrop;
-        int16_t               Nimg;
+        int16_t               Mcrop;               // Size of upsampled image (x)
+        int16_t               Ncrop;               // Size of upsampled image (y)
         int16_t               Nlarge;
         int16_t               Mlarge;
         float                 du;                // Delta Spatial Frequency
@@ -71,13 +74,13 @@ class FPM_Dataset{
         std::vector<float>    sortedNALedPatternStackY;
         std::vector<int16_t>  sortedIndicies;
         int16_t               bk1cropX;
-        int16_t               bk1cropY;     
-        int16_t               bk2cropX;     
+        int16_t               bk1cropY;
+        int16_t               bk2cropX;
         int16_t               bk2cropY;
         float                 bgThreshold;
         float                 ps_eff;
         float                 ps; // Recovered Pixel Size
-        
+
         // FPM Specific
         float                 delta1;
         float                 delta2;
@@ -88,7 +91,7 @@ class FPM_Dataset{
         cv::Mat               pupil;                     // Reconstructed pupil, Fourier Space
         cv::Mat               pupilSupport;             // Binary mask for pupil support, Fourier space
         int16_t               itrCount = 10;            // Iteration Count
-        
+
         float                 eps = 0.0000000001;
 };
 

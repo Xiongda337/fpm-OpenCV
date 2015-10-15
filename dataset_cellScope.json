@@ -1,0 +1,27 @@
+{
+  "datasetRoot" : "  /Users/zfphil/Dropbox/Repository/Datasets/FPMScan_Dataset_20151014_132805573/croppedImages/",
+
+  "isColor" : false,
+  "pixelSize": 2.8,
+  "objectiveMag" : 4,
+  "objectiveNA" : 0.1,
+  "maxIlluminationNA" : 0.25,
+  "centerLED" : 249,
+  "lambda" : 0.5,
+  "cropSizeX" : 90,
+  "cropSizeY" : 90,
+  "filePrefix" : "unCropped_",
+  "fileExtension" : ".tiff",
+  "holeNumberDigits" : 4,
+	"cropX" : 800,
+	"cropY" : 500,
+	"bk1cropX":356,
+	"bk1cropY":565,
+	"bk2cropX":523,
+	"bk2cropY":482,
+	"bgThreh": 10,
+	"delta1" : 5,
+	"delta2" : 10,
+  "arrayRotation" : 45,
+  "ledCount" : 508
+}
