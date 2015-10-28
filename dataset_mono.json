@@ -4,7 +4,7 @@
     "pixelSize": 6.5,
     "objectiveMag" : 8,
     "objectiveNA" : 0.2,
-    "maxIlluminationNA" : 0.2,
+    "maxIlluminationNA" : 0.45,
     "centerLED" : 249,
     "lambda" : 0.5,
     "cropSizeX" : 90,
@@ -19,5 +19,7 @@
 	"bk2cropY":444,
 	"bgThreh": 20,
 	"delta1" : 5,
-	"delta2" : 10
+	"delta2" : 10,
+  "debug" : false,
+  "arrayRotation" : 0
 }

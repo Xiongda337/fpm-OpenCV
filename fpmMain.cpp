@@ -40,8 +40,9 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
   tmpFPMimg.Image = Mat::zeros(dataset->Np, dataset->Np, CV_8UC1);
 
   double angle = dataset->arrayRotation;
-  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos (angle*M_PI/180), -sin (angle*M_PI/180), 0,sin (angle*M_PI/180), cos (angle*M_PI/180), 0, 0, 0, 1);
 
+  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos (angle*M_PI/180), -sin (angle*M_PI/180), 0,sin (angle*M_PI/180), cos (angle*M_PI/180), 0, 0, 0, 1);
+  //cout << rotationMatrixZ <<endl;
   clock_t t1, t2;
   if (loadImgDebug) {
     t1 = clock();
@@ -75,14 +76,28 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
        FPMimg currentImage;
        currentImage.led_num = atoi(holeNum.c_str());
 
-       Mat holeCoordinates = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
+       double hx,hy,hz;
+       hz = domeHoleCoordinates[currentImage.led_num - 1][2];
+       if (dataset->flipIlluminationX)
+          hx = -domeHoleCoordinates[currentImage.led_num - 1][0];
+       else
+          hx = domeHoleCoordinates[currentImage.led_num - 1][0];
+
+       if (dataset->flipIlluminationY)
+          hy = -domeHoleCoordinates[currentImage.led_num - 1][1];
+       else
+          hy = domeHoleCoordinates[currentImage.led_num - 1][1];
+
+       Mat holeCoordinates = (Mat_<double>(1,3) << hx, hy, hz);
        holeCoordinates = rotationMatrixZ * holeCoordinates.t();
+
        currentImage.sinTheta_x =
            sin(atan2(holeCoordinates.at<double>(0, 0),
                      holeCoordinates.at<double>(2, 0)));
        currentImage.sinTheta_y =
        sin(atan2(holeCoordinates.at<double>(1, 0),
                  holeCoordinates.at<double>(2, 0)));
+
        currentImage.illumination_na =
                      sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
                           currentImage.sinTheta_y * currentImage.sinTheta_y);
@@ -106,10 +121,13 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
               imread(dataset->datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH);
         }
 
+
         // Populate fields of FPMImage class
         currentImage.Image = fullImg(cv::Rect(dataset->cropX, dataset->cropY,
-                                              dataset->Np, dataset->Np))
-                                 .clone();
+                                              dataset->Np, dataset->Np)).clone();
+        // If darkfield, account for exposure multiplication (if any)
+        if (dataset->darkfieldExpMultiplier != 1 && sqrt(currentImage.illumination_na > dataset->objectiveNA))
+          currentImage.Image = currentImage.Image / dataset->darkfieldExpMultiplier;
 
         cv::Scalar bk1 = cv::mean(fullImg(cv::Rect(
             dataset->bk1cropX, dataset->bk1cropY, dataset->Np, dataset->Np)));
@@ -132,13 +150,10 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         // Fourier shift of off-axis led
         currentImage.idx_u = (int16_t)round(currentImage.uled / dataset->du);
         currentImage.idx_v = (int16_t)round(currentImage.vled / dataset->du);
-        // Pixel shift of off-axis led
-        currentImage.pupilShiftX = (int16_t)round(
-            currentImage.sinTheta_x / dataset->lambda * dataset->ps *
-            dataset->Nlarge); // Deal with MATLAB indexing
-        currentImage.pupilShiftY = (int16_t)round(
-            currentImage.sinTheta_y / dataset->lambda * dataset->ps *
-            dataset->Mlarge); // Deal with MATLAB indexing
+
+        currentImage.pupilShiftX = currentImage.idx_u;
+        currentImage.pupilShiftY = currentImage.idx_v;
+
                               // Region to crop in Fourier Domain
         currentImage.cropXStart = (int16_t)round(dataset->Nlarge / 2) +
                                   currentImage.pupilShiftX -
@@ -327,7 +342,7 @@ void runFPM(FPM_Dataset *dataset) {
     {
       int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
 
-      if (runDebug)
+      //if (runDebug)
         cout << "Starting LED# " << ledNum << endl;
 
       currImg = &dataset->imageStack.at(ledNum);
@@ -335,6 +350,8 @@ void runFPM(FPM_Dataset *dataset) {
       // Update Fourier space, multply by pupil (P * O)
       fftShift(dataset->objF,
                objF_centered); // Shifted Object spectrum (at center)
+
+
       fftShift(objF_centered(cv::Rect(currImg->cropXStart, currImg->cropYStart,
                                       dataset->Np, dataset->Np)),
                currImg->Objfcrop); // Take ROI from shifted object spectrum
@@ -343,14 +360,14 @@ void runFPM(FPM_Dataset *dataset) {
       ifft2(currImg->ObjfcropP, currImg->ObjcropP);
       if (runDebug) {
         std::cout << "NEW LED" << std::endl;
-        showComplexImg(currImg->Objfcrop, SHOW_COMPLEX_MAG,
+        showComplexImg((currImg->Objfcrop), SHOW_COMPLEX_MAG,
                        "currImg->Objfcrop");
-        showComplexImg(currImg->ObjfcropP, SHOW_COMPLEX_MAG,
+        showComplexImg((currImg->ObjfcropP), SHOW_COMPLEX_MAG,
                        "currImg->ObjfcropP");
-        showComplexImg(currImg->ObjcropP, SHOW_COMPLEX_COMPONENTS,
+        showComplexImg((currImg->ObjcropP), SHOW_COMPLEX_COMPONENTS,
                        "currImg->ObjcropP");
-      }
-
+        showComplexImg((dataset->objF), SHOW_COMPLEX_MAG,"objF");
+}
       // Replace Amplitude (using pointer iteration)
       for (int i = 0; i < dataset->Np; i++) // loop through y
       {
@@ -358,22 +375,43 @@ void runFPM(FPM_Dataset *dataset) {
         double *o_i = objectAmp.ptr<double>(i);                // Output
 
         for (int j = 0; j < dataset->Np; j++) {
-          o_i[j * 2] = sqrt((double)m_i[j]); // Real
+          o_i[j * 2] = sqrt((double)m_i[j]); // Reala
           o_i[j * 2 + 1] = 0.0;              // Imaginary
         }
       }
-      // Update Onject fourier transform (preserbing phase)
+
+      // Update Object fourier transform (preserving phase)
       complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
       complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
       complexMultiply(tmpMat1, objectAmp, tmpMat3);
       fft2(tmpMat3, currImg->Objfup);
 
+      // See if fourier transform of object has DC term in same location as cropped spectrum
+
+/*
+      // Initialize FT of reconstructed object with center led image
+      currImg->Image.convertTo(planes[0],CV_64FC1);
+      cv::sqrt(planes[0], planes[0]); // Convert to amplitude
+      planes[1] = Mat::zeros(dataset->Np, dataset->Np, CV_64F);
+      merge(planes, 2, complexI);
+      fft2(complexI,complexI);
+      fftShift(complexI,complexI);
+
+
+
+      showComplexImg(complexI, SHOW_COMPLEX_REAL, "FT of Image");
+
+       fftShift(currImg->Objfup,tmpMat3);
+       showComplexImg((tmpMat3), SHOW_COMPLEX_REAL,
+                      "ObjfcropP - object fourier spectrum");
+
+*/
       if (runDebug) {
-        showComplexImg(objectAmp, SHOW_COMPLEX_COMPONENTS,
+        showComplexImg(objectAmp, SHOW_COMPLEX_REAL,
                        "Amplitude of Input Image");
         showComplexImg(tmpMat3, SHOW_COMPLEX_COMPONENTS,
                        "Image with amplitude   replaced");
-        showComplexImg(currImg->Objfup, SHOW_COMPLEX_MAG, "currImg->Objfup");
+        showComplexImg((currImg->Objfup), SHOW_COMPLEX_MAG, "currImg->Objfup");
       }
 
       ///////// Alternating Projection Method - Object ///////////
@@ -392,8 +430,8 @@ void runFPM(FPM_Dataset *dataset) {
       complexDivide(numerator, denomSum * pupil_abs_max, tmpMat2);
 
       if (runDebug) {
-        showComplexImg(numerator, SHOW_COMPLEX_MAG, "Object update Numerator");
-        showComplexImg(tmpMat2, SHOW_COMPLEX_MAG, "Object update Denominator");
+        showComplexImg((numerator), SHOW_COMPLEX_MAG, "Object update Numerator");
+        showComplexImg((tmpMat2), SHOW_COMPLEX_MAG, "Object update Denominator");
       }
 
       fftShift(dataset->objF, objF_centered);
@@ -405,10 +443,10 @@ void runFPM(FPM_Dataset *dataset) {
       tmpMat1 = tmpMat2 + objF_cropped;
 
       if (runDebug) {
-        showComplexImg(objF_cropped, SHOW_COMPLEX_MAG,
+        showComplexImg((objF_cropped), SHOW_COMPLEX_MAG,
                        "Origional Object Spectrum to be updated");
         fftShift(tmpMat2, tmpMat2);
-        showComplexImg(tmpMat2, SHOW_COMPLEX_MAG,
+        showComplexImg((tmpMat2), SHOW_COMPLEX_MAG,
                        "Object spectrum update incriment");
       }
 
@@ -420,9 +458,9 @@ void runFPM(FPM_Dataset *dataset) {
 
       if (runDebug) {
         fftShift(tmpMat1, tmpMat1);
-        showComplexImg(tmpMat1, SHOW_COMPLEX_MAG,
+        showComplexImg((tmpMat1), SHOW_COMPLEX_MAG,
                        "Cropped updated object spectrum");
-        showComplexImg(dataset->objF, SHOW_COMPLEX_MAG,
+        showComplexImg((dataset->objF), SHOW_COMPLEX_MAG,
                        "Full updated object spectrum");
       }
 
@@ -457,9 +495,13 @@ void runFPM(FPM_Dataset *dataset) {
   cout << "FP Processing Completed (Time: " << diff << " sec)" << endl;
 
   // showComplexImg(dataset->objF, SHOW_COMPLEX_MAG, "Object Spectrum");
-  showComplexImg(dataset->objCrop, SHOW_COMPLEX_COMPONENTS, "Object");
+  fftShift(dataset->objF,dataset->objF);
+  //cv::log(dataset->objF,dataset->objF);
+  showComplexImg(dataset->objF, SHOW_COMPLEX_COMPONENTS, "Object Fourier Spectrum");
+
+  showComplexImg(dataset->objCrop, SHOW_AMP_PHASE, "Object");
   fftShift(dataset->pupil, dataset->pupil);
-  showComplexImg(dataset->pupil, SHOW_COMPLEX_COMPONENTS, "Pupil");
+  showComplexImg(dataset->pupil, SHOW_AMP_PHASE, "Pupil");
 }
 
 int main(int argc, char **argv) {
@@ -484,7 +526,7 @@ int main(int argc, char **argv) {
   mDataset.Np = datasetJson.get("cropSizeX", 90).asInt();
   mDataset.datasetRoot = datasetJson.get("datasetRoot", ".").asString();
   mDataset.pixelSize = datasetJson.get("pixelSize", 6.5).asDouble();
-  mDataset.objectiveMag = datasetJson.get("objectiveMat", 8).asDouble();
+  mDataset.objectiveMag = datasetJson.get("objectiveMag", 8).asDouble();
   mDataset.objectiveNA = datasetJson.get("objectiveNA", 0.2).asDouble();
   mDataset.maxIlluminationNA =
       datasetJson.get("maxIlluminationNA", 0.7604).asDouble();
@@ -497,6 +539,7 @@ int main(int argc, char **argv) {
   mDataset.cropX = datasetJson.get("cropX", 1).asInt();
   mDataset.cropY = datasetJson.get("cropY", 1).asInt();
   mDataset.arrayRotation = datasetJson.get("arrayRotation", 0).asInt();
+  std::cout <<mDataset.arrayRotation<<endl;
   mDataset.bk1cropX = datasetJson.get("bk1cropX", 1).asInt();
   mDataset.bk1cropY = datasetJson.get("bk1cropY", 1).asInt();
   mDataset.bk2cropX = datasetJson.get("bk2cropX", 1).asInt();
@@ -518,13 +561,10 @@ int main(int argc, char **argv) {
     img(cv::Rect(mDataset.cropX, mDataset.cropY, mDataset.Np, mDataset.Np)),
       "Cropped Center Image");
   }
-  /*int16_t resImprovementFactor = (int16_t)ceil(
+  int16_t resImprovementFactor = 1+(int16_t)ceil(
       2 * mDataset.ps_eff *
-      (mDataset.maxIlluminationNA + mDataset.objectiveNA) /
-      mDataset
-          .lambda);*/
+      (mDataset.maxIlluminationNA + mDataset.objectiveNA) / mDataset.lambda);
 
-  int16_t resImprovementFactor = 5;
   mDataset.bgThreshold = datasetJson.get("bgThresh", 1000).asInt();
   mDataset.Mcrop = mDataset.Np;
   mDataset.Ncrop = mDataset.Np;
@@ -535,6 +575,10 @@ int main(int argc, char **argv) {
   mDataset.delta2 = datasetJson.get("delta2", 10).asInt();
   mDataset.itrCount = atoi(argv[2]);
   mDataset.ledCount = datasetJson.get("ledCount", 508).asInt();
+  mDataset.flipIlluminationX = datasetJson.get("flipDatasetX", false).asBool();
+  mDataset.flipIlluminationY = datasetJson.get("flipDatasetY", false).asBool();
+  mDataset.darkfieldExpMultiplier = datasetJson.get("darkfieldExpMultiplier",1).asInt();
+  runDebug = datasetJson.get("debug",false).asBool();
 
   // Reserve memory for imageStack
   mDataset.imageStack.reserve(mDataset.ledCount);

@@ -47,6 +47,7 @@ class FPM_Dataset{
         std::string           fileExtension;       // Raw data file extension (e.g. .tif)
         std::vector<FPMimg>   imageStack;
         double                arrayRotation;       // Global Rotaton of array
+        uint16_t              darkfieldExpMultiplier;
         int16_t               holeNumberDigits;    // Number of digits in hole number in filename
         uint16_t              ledCount;            // Number of LEDs in system (even if we don't use all of them)
         uint16_t              ledUsedCount;
@@ -91,6 +92,8 @@ class FPM_Dataset{
         cv::Mat               pupil;                     // Reconstructed pupil, Fourier Space
         cv::Mat               pupilSupport;             // Binary mask for pupil support, Fourier space
         int16_t               itrCount = 10;            // Iteration Count
+        bool                  flipIlluminationX;
+        bool                  flipIlluminationY;
 
         float                 eps = 0.0000000001;
 };
