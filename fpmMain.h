@@ -23,8 +23,8 @@ class FPMimg{
         cv::Mat ObjcropP;
         cv::Mat Objfup;
         int led_num;
-        float sinTheta_x;
-        float sinTheta_y;
+        double sinTheta_x;
+        double sinTheta_y;
         float vled;
         float uled;
         int16_t idx_u;
@@ -37,12 +37,11 @@ class FPMimg{
         int16_t cropYEnd;
         int16_t cropXStart;
         int16_t cropXEnd;
-
 };
 
 class FPM_Dataset{
   public:
-        std::string                datasetRoot;    // Dataset location, with trailing "\"
+        std::string           datasetRoot;    // Dataset location, with trailing "\"
         std::string           filePrefix;          // Raw data file header (everything before led #)
         std::string           fileExtension;       // Raw data file extension (e.g. .tif)
         std::vector<FPMimg>   imageStack;

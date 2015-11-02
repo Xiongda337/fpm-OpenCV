@@ -39,9 +39,6 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
   FPMimg tmpFPMimg;
   tmpFPMimg.Image = Mat::zeros(dataset->Np, dataset->Np, CV_8UC1);
 
-  double angle = dataset->arrayRotation;
-
-  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos (angle*M_PI/180), -sin (angle*M_PI/180), 0,sin (angle*M_PI/180), cos (angle*M_PI/180), 0, 0, 0, 1);
   //cout << rotationMatrixZ <<endl;
   clock_t t1, t2;
   if (loadImgDebug) {
@@ -57,6 +54,10 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
     dataset->NALedPatternStackX.push_back(-1.0);
     dataset->NALedPatternStackY.push_back(-1.0);
   }
+
+  // Generate Rotation Matrix
+  double angle = dataset->arrayRotation;
+  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos (angle*M_PI/180), -sin (angle*M_PI/180), 0,sin (angle*M_PI/180), cos (angle*M_PI/180), 0, 0, 0, 1);
 
   if ((dir = opendir(dataset->datasetRoot.c_str())) != NULL) {
     int16_t num_images = 0;
@@ -76,32 +77,30 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
        FPMimg currentImage;
        currentImage.led_num = atoi(holeNum.c_str());
 
-       double hx,hy,hz;
-       hz = domeHoleCoordinates[currentImage.led_num - 1][2];
+       Mat holeCoordinatesIn = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
+       Mat holeCoordinates = holeCoordinatesIn * rotationMatrixZ;
+
+       // Flip coordinates if desired
+       Mat flipMat = (Mat_<double>(1,3) << 1, 1, 1);
        if (dataset->flipIlluminationX)
-          hx = -domeHoleCoordinates[currentImage.led_num - 1][0];
-       else
-          hx = domeHoleCoordinates[currentImage.led_num - 1][0];
-
+         flipMat = (Mat_<double>(1,3) << -1, 1, 1);
        if (dataset->flipIlluminationY)
-          hy = -domeHoleCoordinates[currentImage.led_num - 1][1];
-       else
-          hy = domeHoleCoordinates[currentImage.led_num - 1][1];
+         flipMat = (Mat_<double>(1,3) << -1, 1, 1);
+       holeCoordinates = holeCoordinates.mul(flipMat);
 
-       Mat holeCoordinates = (Mat_<double>(1,3) << hx, hy, hz);
-       holeCoordinates = rotationMatrixZ * holeCoordinates.t();
 
-       currentImage.sinTheta_x =
-           sin(atan2(holeCoordinates.at<double>(0, 0),
-                     holeCoordinates.at<double>(2, 0)));
-       currentImage.sinTheta_y =
-       sin(atan2(holeCoordinates.at<double>(1, 0),
-                 holeCoordinates.at<double>(2, 0)));
+       currentImage.sinTheta_x = sin(atan2(holeCoordinates.at<double>(0, 0),
+                     holeCoordinates.at<double>(0, 2)));
+
+       currentImage.sinTheta_y = sin(atan2(holeCoordinates.at<double>(0, 1),
+                 holeCoordinates.at<double>(0, 2)));
+
+       //std::cout << "SinThetaX: " << currentImage.sinTheta_x <<", SinThetaY: " << currentImage.sinTheta_y <<std::endl;
 
        currentImage.illumination_na =
                      sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
                           currentImage.sinTheta_y * currentImage.sinTheta_y);
-  std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
+        std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
          if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
          {
 
@@ -116,7 +115,6 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         //  cout << fullImg.depth() << std::endl;
         //  cout << fullImg.channels() << std::endl;
         } else {
-
           fullImg =
               imread(dataset->datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH);
         }
@@ -342,7 +340,7 @@ void runFPM(FPM_Dataset *dataset) {
     {
       int16_t ledNum = dataset->sortedIndicies.at(imgIdx);
 
-      //if (runDebug)
+      if (runDebug)
         cout << "Starting LED# " << ledNum << endl;
 
       currImg = &dataset->imageStack.at(ledNum);
@@ -351,10 +349,8 @@ void runFPM(FPM_Dataset *dataset) {
       fftShift(dataset->objF,
                objF_centered); // Shifted Object spectrum (at center)
 
-
       fftShift(objF_centered(cv::Rect(currImg->cropXStart, currImg->cropYStart,
-                                      dataset->Np, dataset->Np)),
-               currImg->Objfcrop); // Take ROI from shifted object spectrum
+                                      dataset->Np, dataset->Np)),currImg->Objfcrop); // Take ROI from shifted object spectrum
 
       complexMultiply(currImg->Objfcrop, dataset->pupil, currImg->ObjfcropP);
       ifft2(currImg->ObjfcropP, currImg->ObjcropP);
@@ -367,7 +363,7 @@ void runFPM(FPM_Dataset *dataset) {
         showComplexImg((currImg->ObjcropP), SHOW_COMPLEX_COMPONENTS,
                        "currImg->ObjcropP");
         showComplexImg((dataset->objF), SHOW_COMPLEX_MAG,"objF");
-}
+      }
       // Replace Amplitude (using pointer iteration)
       for (int i = 0; i < dataset->Np; i++) // loop through y
       {
@@ -386,26 +382,6 @@ void runFPM(FPM_Dataset *dataset) {
       complexMultiply(tmpMat1, objectAmp, tmpMat3);
       fft2(tmpMat3, currImg->Objfup);
 
-      // See if fourier transform of object has DC term in same location as cropped spectrum
-
-/*
-      // Initialize FT of reconstructed object with center led image
-      currImg->Image.convertTo(planes[0],CV_64FC1);
-      cv::sqrt(planes[0], planes[0]); // Convert to amplitude
-      planes[1] = Mat::zeros(dataset->Np, dataset->Np, CV_64F);
-      merge(planes, 2, complexI);
-      fft2(complexI,complexI);
-      fftShift(complexI,complexI);
-
-
-
-      showComplexImg(complexI, SHOW_COMPLEX_REAL, "FT of Image");
-
-       fftShift(currImg->Objfup,tmpMat3);
-       showComplexImg((tmpMat3), SHOW_COMPLEX_REAL,
-                      "ObjfcropP - object fourier spectrum");
-
-*/
       if (runDebug) {
         showComplexImg(objectAmp, SHOW_COMPLEX_REAL,
                        "Amplitude of Input Image");
@@ -495,9 +471,8 @@ void runFPM(FPM_Dataset *dataset) {
   cout << "FP Processing Completed (Time: " << diff << " sec)" << endl;
 
   // showComplexImg(dataset->objF, SHOW_COMPLEX_MAG, "Object Spectrum");
-  fftShift(dataset->objF,dataset->objF);
-  //cv::log(dataset->objF,dataset->objF);
-  showComplexImg(dataset->objF, SHOW_COMPLEX_COMPONENTS, "Object Fourier Spectrum");
+  //fftShift(dataset->objF,dataset->objF);
+  //showComplexImg(dataset->objF, SHOW_COMPLEX_COMPONENTS, "Object Fourier Spectrum");
 
   showComplexImg(dataset->objCrop, SHOW_AMP_PHASE, "Object");
   fftShift(dataset->pupil, dataset->pupil);
@@ -539,7 +514,6 @@ int main(int argc, char **argv) {
   mDataset.cropX = datasetJson.get("cropX", 1).asInt();
   mDataset.cropY = datasetJson.get("cropY", 1).asInt();
   mDataset.arrayRotation = datasetJson.get("arrayRotation", 0).asInt();
-  std::cout <<mDataset.arrayRotation<<endl;
   mDataset.bk1cropX = datasetJson.get("bk1cropX", 1).asInt();
   mDataset.bk1cropY = datasetJson.get("bk1cropY", 1).asInt();
   mDataset.bk2cropX = datasetJson.get("bk2cropX", 1).asInt();
@@ -565,6 +539,7 @@ int main(int argc, char **argv) {
       2 * mDataset.ps_eff *
       (mDataset.maxIlluminationNA + mDataset.objectiveNA) / mDataset.lambda);
 
+  std::cout << "resImprovementFactor: " << resImprovementFactor <<std::endl;
   mDataset.bgThreshold = datasetJson.get("bgThresh", 1000).asInt();
   mDataset.Mcrop = mDataset.Np;
   mDataset.Ncrop = mDataset.Np;
