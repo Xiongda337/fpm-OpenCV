@@ -1,5 +1,5 @@
 {
-  "datasetRoot" : "/Users/zfphil/Box Sync/Datasets/FPM dataset/croppedImages/",
+  "datasetRoot" : "/Users/zfphil/Google Drive/Datasets/FPM dataset/croppedImages/",
   "debug" : false,
   "isColor" : true,
   "ledCount" : 508,
@@ -22,7 +22,7 @@
 	"bk2cropY":713,
 	"bgThresh": 1000,
 	"delta1" : 1000,
-	"delta2" : 50,
+	"delta2" : 70,
   "arrayRotation" : 126,
   "flipDatasetX" : true,
   "flipDatasetY" : false,

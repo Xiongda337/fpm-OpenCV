@@ -31,6 +31,7 @@ string filePrefix = "iLED_";
 bool runDebug = false;
 bool loadImgDebug = false;
 
+// This function loads the FPM images, crops and stores them in the dataset object. It also computes parameters necessary for placing the images in the correct positions in Fourier Space
 int16_t loadFPMDataset(FPM_Dataset *dataset) {
   DIR *dir;
   struct dirent *ent;
@@ -39,7 +40,6 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
   FPMimg tmpFPMimg;
   tmpFPMimg.Image = Mat::zeros(dataset->Np, dataset->Np, CV_8UC1);
 
-  //cout << rotationMatrixZ <<endl;
   clock_t t1, t2;
   if (loadImgDebug) {
     t1 = clock();
@@ -76,7 +76,8 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
                                          FILE_HOLENUM_DIGITS);
        FPMimg currentImage;
        currentImage.led_num = atoi(holeNum.c_str());
-
+       
+    // Due to the optical setup, the hole coordinates are usually rotated relative to the camera x/y.
        Mat holeCoordinatesIn = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
        Mat holeCoordinates = holeCoordinatesIn * rotationMatrixZ;
 
@@ -88,14 +89,12 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
          flipMat = (Mat_<double>(1,3) << -1, 1, 1);
        holeCoordinates = holeCoordinates.mul(flipMat);
 
-
+        
        currentImage.sinTheta_x = sin(atan2(holeCoordinates.at<double>(0, 0),
                      holeCoordinates.at<double>(0, 2)));
 
        currentImage.sinTheta_y = sin(atan2(holeCoordinates.at<double>(0, 1),
                  holeCoordinates.at<double>(0, 2)));
-
-       //std::cout << "SinThetaX: " << currentImage.sinTheta_x <<", SinThetaY: " << currentImage.sinTheta_y <<std::endl;
 
        currentImage.illumination_na =
                      sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
@@ -103,8 +102,8 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
          if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
          {
-
-
+             
+        // EXPERIMENTAL - dealing with color images
         if (dataset->color) {
           fullImg = imread(dataset->datasetRoot + fileName,
                            CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_COLOR);
@@ -112,8 +111,7 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
           split(fullImg, channels);
           cvtColor(fullImg, fullImg, CV_RGB2GRAY);
           fullImg = channels[2]; // Green Channel
-        //  cout << fullImg.depth() << std::endl;
-        //  cout << fullImg.channels() << std::endl;
+
         } else {
           fullImg =
               imread(dataset->datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH);
@@ -178,6 +176,8 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         num_images++;
         std::cout << "Loaded: " << fileName
                   << ", LED # is: " << currentImage.led_num << std::endl;
+             
+        // Interface for printing all of these values for debugging
         if (loadImgDebug) {
           std::cout << "   sintheta_x is: " << currentImage.sinTheta_x
                     << ", sintheta_y is: " << currentImage.sinTheta_y
@@ -267,6 +267,7 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
   }
 }
 
+// This is the function which computes the FPM reconstruction of the sample. Called after populating the dataset using the loadDataset function
 void runFPM(FPM_Dataset *dataset) {
 
   clock_t t1, t2, t3, t4;
@@ -312,17 +313,20 @@ void runFPM(FPM_Dataset *dataset) {
   planes[0] =
       Mat_<double>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image);
   cv::sqrt(planes[0], planes[0]); // Convert to amplitude
-  planes[1] = Mat::zeros(dataset->Np, dataset->Np, CV_64F);
-  merge(planes, 2, complexI);
+  planes[1] = Mat::zeros(dataset->Np, dataset->Np, CV_64F); // No Phase information (yet)
+  merge(planes, 2, complexI); // Complex matricies are stored in NxMx2 matricies
 
+  // Compute the fft of the input image (amp only)
   fft2(complexI, complexI);
-  complexMultiply(complexI, dataset->pupilSupport, complexI);
+  complexMultiply(complexI, dataset->pupilSupport, complexI); // Filter to pupil support
   fftShift(complexI, complexI); // Shift to center
 
+  // Initialize our final image spectrum
   planes[0] = Mat::zeros(dataset->Nlarge, dataset->Mlarge, CV_64F);
   planes[1] = Mat::zeros(dataset->Nlarge, dataset->Mlarge, CV_64F);
   merge(planes, 2, dataset->objF);
 
+  // Place center LED image in the correct position in the large spectrum
   complexI.copyTo(
       cv::Mat(dataset->objF, cv::Rect((int16_t)round(dataset->Mlarge / 2) -
                                           (int16_t)round(dataset->Ncrop / 2),
@@ -364,6 +368,7 @@ void runFPM(FPM_Dataset *dataset) {
                        "currImg->ObjcropP");
         showComplexImg((dataset->objF), SHOW_COMPLEX_MAG,"objF");
       }
+        
       // Replace Amplitude (using pointer iteration)
       for (int i = 0; i < dataset->Np; i++) // loop through y
       {
@@ -390,7 +395,7 @@ void runFPM(FPM_Dataset *dataset) {
         showComplexImg((currImg->Objfup), SHOW_COMPLEX_MAG, "currImg->Objfup");
       }
 
-      ///////// Alternating Projection Method - Object ///////////
+      ///////// Object Update Function///////////
       // Numerator
       complexAbs(dataset->pupil, pupil_abs);
       complexConj(dataset->pupil, pupil_conj);
@@ -463,6 +468,7 @@ void runFPM(FPM_Dataset *dataset) {
          << endl;
     dft(dataset->objF, dataset->objCrop, DFT_INVERSE | DFT_SCALE);
   }
+    
   // showImgObject((dataset->objCrop), "Object");
   // showImgFourier((dataset->objF),"Object Spectrum");
   // showImgObject(fftShift(dataset->pupil),"Pupil");
