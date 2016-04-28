@@ -57,7 +57,7 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
 
   // Generate Rotation Matrix
   double angle = dataset->arrayRotation;
-  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos (angle*M_PI/180), -sin (angle*M_PI/180), 0,sin (angle*M_PI/180), cos (angle*M_PI/180), 0, 0, 0, 1);
+  Mat rotationMatrixZ = (Mat_<double>(3,3) << cos(angle*M_PI/180), -sin(angle*M_PI/180), 0,sin(angle*M_PI/180), cos(angle*M_PI/180), 0, 0, 0, 1);
 
   if ((dir = opendir(dataset->datasetRoot.c_str())) != NULL) {
     int16_t num_images = 0;
@@ -66,19 +66,27 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
       string fileName = ent->d_name;
       /* Get data from file name, if name is right format.*/
       if (fileName.compare(".") != 0 && fileName.compare("..") != 0 &&
-          (strcmp(dataset->fileExtension.c_str(),
-                  &(ent->d_name[strlen(ent->d_name) -
-                                dataset->fileExtension.length()])) == 0) &&(
-                              fileName.find(dataset->filePrefix) == 0))
-                              {
-        string holeNum = fileName.substr(fileName.find(dataset->filePrefix) +
+          (strcmp(dataset->fileExtension.c_str(),&(ent->d_name[strlen(ent->d_name) -dataset->fileExtension.length()])) == 0) &&(fileName.find(dataset->filePrefix) == 0)){
+       string holeNum = fileName.substr(fileName.find(dataset->filePrefix) +
                                              dataset->filePrefix.length(),
-                                         FILE_HOLENUM_DIGITS);
+                                         fileName.length()-dataset->fileExtension.length()-dataset->filePrefix.length());
        FPMimg currentImage;
        currentImage.led_num = atoi(holeNum.c_str());
-       
-    // Due to the optical setup, the hole coordinates are usually rotated relative to the camera x/y.
-       Mat holeCoordinatesIn = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
+      //  cout << currentImage.led_num<<endl;
+      //  cout <<dataset->holeCoordinates<<endl;
+      //  cout <<dataset->holeCoordinates[currentImage.led_num][0]<<endl;
+
+       // Due to the optical setup, the hole coordinates are usually rotated relative to the camera x/y.
+       //Mat holeCoordinatesIn = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
+
+       float posX = dataset->holeCoordinates[currentImage.led_num - 1][0].get("x",0).asFloat();
+       float posY = dataset->holeCoordinates[currentImage.led_num - 1][1].get("y",0).asFloat();
+       float posZ = dataset->holeCoordinates[currentImage.led_num - 1][2].get("z",0).asFloat();
+
+       Mat holeCoordinatesIn = (Mat_<double>(1,3) << posX, posY, posZ);
+
+       //float posX = dataset->holeCoordinates[currentImage.led_num-1].get("x",0).asFloat();
+       //std::cout << posX <<std::endl;
        Mat holeCoordinates = holeCoordinatesIn * rotationMatrixZ;
 
        // Flip coordinates if desired
@@ -89,12 +97,12 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
          flipMat = (Mat_<double>(1,3) << -1, 1, 1);
        holeCoordinates = holeCoordinates.mul(flipMat);
 
-        
        currentImage.sinTheta_x = sin(atan2(holeCoordinates.at<double>(0, 0),
                      holeCoordinates.at<double>(0, 2)));
 
        currentImage.sinTheta_y = sin(atan2(holeCoordinates.at<double>(0, 1),
                  holeCoordinates.at<double>(0, 2)));
+
 
        currentImage.illumination_na =
                      sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
@@ -102,8 +110,7 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
          if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
          {
-             
-        // EXPERIMENTAL - dealing with color images
+
         if (dataset->color) {
           fullImg = imread(dataset->datasetRoot + fileName,
                            CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_COLOR);
@@ -176,7 +183,7 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
         num_images++;
         std::cout << "Loaded: " << fileName
                   << ", LED # is: " << currentImage.led_num << std::endl;
-             
+
         // Interface for printing all of these values for debugging
         if (loadImgDebug) {
           std::cout << "   sintheta_x is: " << currentImage.sinTheta_x
@@ -368,7 +375,7 @@ void runFPM(FPM_Dataset *dataset) {
                        "currImg->ObjcropP");
         showComplexImg((dataset->objF), SHOW_COMPLEX_MAG,"objF");
       }
-        
+
       // Replace Amplitude (using pointer iteration)
       for (int i = 0; i < dataset->Np; i++) // loop through y
       {
@@ -468,7 +475,7 @@ void runFPM(FPM_Dataset *dataset) {
          << endl;
     dft(dataset->objF, dataset->objCrop, DFT_INVERSE | DFT_SCALE);
   }
-    
+
   // showImgObject((dataset->objCrop), "Object");
   // showImgFourier((dataset->objF),"Object Spectrum");
   // showImgObject(fftShift(dataset->pupil),"Pupil");
@@ -560,6 +567,7 @@ int main(int argc, char **argv) {
   mDataset.flipIlluminationY = datasetJson.get("flipDatasetY", false).asBool();
   mDataset.darkfieldExpMultiplier = datasetJson.get("darkfieldExpMultiplier",1).asInt();
   runDebug = datasetJson.get("debug",false).asBool();
+  mDataset.holeCoordinates = datasetJson.get("holeCoordinates",0);
 
   // Reserve memory for imageStack
   mDataset.imageStack.reserve(mDataset.ledCount);

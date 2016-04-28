@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <fstream>
 #include <vector>
+#include "include/json.h"
 
 #if !defined(FPM_MAIN_H)
 #define FPM_MAIN_H 1
@@ -41,6 +42,7 @@ class FPMimg{
 
 class FPM_Dataset{
   public:
+        Json::Value           holeCoordinates;
         std::string           datasetRoot;    // Dataset location, with trailing "\"
         std::string           filePrefix;          // Raw data file header (everything before led #)
         std::string           fileExtension;       // Raw data file extension (e.g. .tif)
@@ -93,8 +95,8 @@ class FPM_Dataset{
         int16_t               itrCount = 10;            // Iteration Count
         bool                  flipIlluminationX;
         bool                  flipIlluminationY;
-
         float                 eps = 0.0000000001;
+
 };
 
 template <typename T>
