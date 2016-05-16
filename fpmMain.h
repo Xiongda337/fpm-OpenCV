@@ -9,6 +9,7 @@
 #include <fstream>
 #include <vector>
 #include "include/json.h"
+#include "opencv2/contrib/contrib.hpp"
 
 #if !defined(FPM_MAIN_H)
 #define FPM_MAIN_H 1

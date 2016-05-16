@@ -2,7 +2,7 @@
 fpmMain.cpp
 */
 #include <time.h>
-///#include <opencv2/contrib/contrib.hpp>
+#include <opencv2/contrib/contrib.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -15,6 +15,7 @@ fpmMain.cpp
 #include "cvComplex.h"
 #include "fpmMain.h"
 #include "include/json.h"
+
 
 //#include "include/rapidjson"
 #include "include/domeHoleCoordinates.h"
