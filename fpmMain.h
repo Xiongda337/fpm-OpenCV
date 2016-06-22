@@ -1,7 +1,7 @@
 #include <time.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 #include <iostream>
 #include <string>
 #include <stdio.h>
@@ -9,7 +9,6 @@
 #include <fstream>
 #include <vector>
 #include "include/json.h"
-#include "opencv2/contrib/contrib.hpp"
 
 #if !defined(FPM_MAIN_H)
 #define FPM_MAIN_H 1

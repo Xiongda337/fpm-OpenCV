@@ -2,10 +2,10 @@
 fpmMain.cpp
 */
 #include <time.h>
-#include <opencv2/contrib/contrib.hpp>
-#include <opencv2/core/core.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/highgui/highgui.hpp>
+//#include <opencv2/contrib/contrib.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 #include <iostream>
 #include <string>
 #include <stdio.h>
@@ -73,12 +73,6 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
                                          fileName.length()-dataset->fileExtension.length()-dataset->filePrefix.length());
        FPMimg currentImage;
        currentImage.led_num = atoi(holeNum.c_str());
-      //  cout << currentImage.led_num<<endl;
-      //  cout <<dataset->holeCoordinates<<endl;
-      //  cout <<dataset->holeCoordinates[currentImage.led_num][0]<<endl;
-
-       // Due to the optical setup, the hole coordinates are usually rotated relative to the camera x/y.
-       //Mat holeCoordinatesIn = (Mat_<double>(1,3) << domeHoleCoordinates[currentImage.led_num - 1][0], domeHoleCoordinates[currentImage.led_num - 1][1], domeHoleCoordinates[currentImage.led_num - 1][2]);
 
        float posX = dataset->holeCoordinates[currentImage.led_num - 1][0].get("x",0).asFloat();
        float posY = dataset->holeCoordinates[currentImage.led_num - 1][1].get("y",0).asFloat();
@@ -95,7 +89,7 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
        if (dataset->flipIlluminationX)
          flipMat = (Mat_<double>(1,3) << -1, 1, 1);
        if (dataset->flipIlluminationY)
-         flipMat = (Mat_<double>(1,3) << -1, 1, 1);
+         flipMat = (Mat_<double>(1,3) << 1, -1, 1);
        holeCoordinates = holeCoordinates.mul(flipMat);
 
        currentImage.sinTheta_x = sin(atan2(holeCoordinates.at<double>(0, 0),
@@ -104,12 +98,12 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
        currentImage.sinTheta_y = sin(atan2(holeCoordinates.at<double>(0, 1),
                  holeCoordinates.at<double>(0, 2)));
 
-
        currentImage.illumination_na =
                      sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
                           currentImage.sinTheta_y * currentImage.sinTheta_y);
-        std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
-         if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
+       
+       std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
+        if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
          {
 
         if (dataset->color) {
