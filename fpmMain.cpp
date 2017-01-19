@@ -36,19 +36,19 @@ bool loadImgDebug = false;
 int16_t loadFPMDataset(FPM_Dataset *dataset) {
   DIR *dir;
   struct dirent *ent;
-  Mat fullImg;
-  Mat fullImgComplex;
+  cv::UMat fullImg;
+  cv::UMat fullImgComplex;
   FPMimg tmpFPMimg;
-  tmpFPMimg.Image = Mat::zeros(dataset->Np, dataset->Np, CV_8UC1);
+  tmpFPMimg.Image = cv::UMat::zeros(dataset->Np, dataset->Np, CV_8UC1);
 
   clock_t t1, t2;
-  if (loadImgDebug) {
+  if (loadImgDebug)
     t1 = clock();
-  }
 
   // Initialize array of image objects, since we don't know exactly what order
   // imread will read in images. First (0th) element is a dummy so we can access
   // these using the led # directly
+
   for (int16_t ledIdx = 0; ledIdx <= dataset->ledCount; ledIdx++) {
     dataset->imageStack.push_back(tmpFPMimg);
     dataset->illuminationNAList.push_back(99.0);
@@ -78,18 +78,18 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
        float posY = dataset->holeCoordinates[currentImage.led_num - 1][1].get("y",0).asFloat();
        float posZ = dataset->holeCoordinates[currentImage.led_num - 1][2].get("z",0).asFloat();
 
-       Mat holeCoordinatesIn = (Mat_<double>(1,3) << posX, posY, posZ);
+       cv::Mat holeCoordinatesIn = (cv::Mat_<double>(1,3) << posX, posY, posZ);
 
        //float posX = dataset->holeCoordinates[currentImage.led_num-1].get("x",0).asFloat();
        //std::cout << posX <<std::endl;
-       Mat holeCoordinates = holeCoordinatesIn * rotationMatrixZ;
+       cv::Mat holeCoordinates = holeCoordinatesIn * rotationMatrixZ;
 
        // Flip coordinates if desired
-       Mat flipMat = (Mat_<double>(1,3) << 1, 1, 1);
+       cv::Mat flipMat = (cv::Mat_<double>(1,3) << 1, 1, 1);
        if (dataset->flipIlluminationX)
-         flipMat = (Mat_<double>(1,3) << -1, 1, 1);
+         flipMat = (cv::Mat_<double>(1,3) << -1, 1, 1);
        if (dataset->flipIlluminationY)
-         flipMat = (Mat_<double>(1,3) << 1, -1, 1);
+         flipMat = (cv::Mat_<double>(1,3) << 1, -1, 1);
        holeCoordinates = holeCoordinates.mul(flipMat);
 
        currentImage.sinTheta_x = sin(atan2(holeCoordinates.at<double>(0, 0),
@@ -101,31 +101,32 @@ int16_t loadFPMDataset(FPM_Dataset *dataset) {
        currentImage.illumination_na =
                      sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x +
                           currentImage.sinTheta_y * currentImage.sinTheta_y);
-       
+
        std::cout <<"NA:"<<sqrt(currentImage.sinTheta_x * currentImage.sinTheta_x + currentImage.sinTheta_y * currentImage.sinTheta_y)<<endl;
         if (sqrt(currentImage.illumination_na<dataset->maxIlluminationNA))
          {
 
         if (dataset->color) {
           fullImg = imread(dataset->datasetRoot + fileName,
-                           CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_COLOR);
-          Mat channels[3];
-          split(fullImg, channels);
+              CV_LOAD_IMAGE_ANYDEPTH | CV_LOAD_IMAGE_COLOR).getUMat(ACCESS_READ);
+          cv::UMat channels[3];
+          splitUMat(fullImg, 3, channels);
           cvtColor(fullImg, fullImg, CV_RGB2GRAY);
           fullImg = channels[2]; // Green Channel
 
         } else {
           fullImg =
-              imread(dataset->datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH);
+              cv::imread(dataset->datasetRoot + fileName, -1*CV_LOAD_IMAGE_ANYDEPTH).getUMat(ACCESS_READ);;
         }
 
 
         // Populate fields of FPMImage class
         currentImage.Image = fullImg(cv::Rect(dataset->cropX, dataset->cropY,
                                               dataset->Np, dataset->Np)).clone();
+
         // If darkfield, account for exposure multiplication (if any)
         if (dataset->darkfieldExpMultiplier != 1 && sqrt(currentImage.illumination_na > dataset->objectiveNA))
-          currentImage.Image = currentImage.Image / dataset->darkfieldExpMultiplier;
+            cv::divide(currentImage.Image, dataset->darkfieldExpMultiplier,currentImage.Image);
 
         cv::Scalar bk1 = cv::mean(fullImg(cv::Rect(
             dataset->bk1cropX, dataset->bk1cropY, dataset->Np, dataset->Np)));
@@ -275,31 +276,31 @@ void runFPM(FPM_Dataset *dataset) {
   clock_t t1, t2, t3, t4;
   t3 = clock();
   // Make dummy pointers to save space
-  Mat *objF = &dataset->objF;
+  cv::UMat *objF = &dataset->objF;
 
   // Initilize Matricies
-  Mat tmpMat1, tmpMat2, tmpMat3;
-  Mat objF_centered;
-  Mat complexI, pupilAbs, pupilConj, objfcrop_abs, objfcrop_conj;
-  Mat Objfcrop_abs;
-  Mat Objfcrop_abs_sq;
-  Mat Objf_abs;
-  Mat Objfcrop_conj;
-  Mat Objfcrop_abs_conj;
-  Mat planes[] = {Mat::zeros(dataset->Np, dataset->Np, CV_64F),
-                  Mat::zeros(dataset->Np, dataset->Np, CV_64F)};
-  Mat objectAmp = Mat::zeros(dataset->Np, dataset->Np, CV_64FC2);
-  Mat pupil_abs;
-  Mat pupil_abs_sq;
-  Mat pupil_conj;
-  Mat numerator;
-  Mat denomSum;
+  cv::UMat tmpMat1, tmpMat2, tmpMat3;
+  cv::UMat objF_centered;
+  cv::UMat complexI, pupilAbs, pupilConj, objfcrop_abs, objfcrop_conj;
+  cv::UMat Objfcrop_abs;
+  cv::UMat Objfcrop_abs_sq;
+  cv::UMat Objf_abs;
+  cv::UMat Objfcrop_conj;
+  cv::UMat Objfcrop_abs_conj;
+  cv::UMat planes[] = {cv::UMat::zeros(dataset->Np, dataset->Np, CV_64F),
+                  cv::UMat::zeros(dataset->Np, dataset->Np, CV_64F)};
+  cv::UMat objectAmp = cv::UMat::zeros(dataset->Np, dataset->Np, CV_64FC2);
+  cv::UMat pupil_abs;
+  cv::UMat pupil_abs_sq;
+  cv::UMat pupil_conj;
+  cv::UMat numerator;
+  cv::UMat denomSum;
   double q, pupilMax, p, objf_max, Objf_abs_max;
   FPMimg *currImg;
 
   // Initialize pupil function
-  planes[0] = Mat::zeros(dataset->Np, dataset->Np, CV_64F);
-  planes[1] = Mat::zeros(dataset->Np, dataset->Np, CV_64F);
+  planes[0] = cv::UMat::zeros(dataset->Np, dataset->Np, CV_64F);
+  planes[1] = cv::UMat::zeros(dataset->Np, dataset->Np, CV_64F);
   cv::Point center(cvRound(dataset->Np / 2), cvRound(dataset->Np / 2));
   int16_t naRadius = (int16_t)ceil(dataset->objectiveNA * dataset->ps_eff *
                                    dataset->Np / dataset->lambda);
@@ -308,15 +309,17 @@ void runFPM(FPM_Dataset *dataset) {
   // FFTshift the pupil so it is consistant with object FT
   fftShift(planes[0], planes[0]);
 
-  merge(planes, 2, dataset->pupil);
+  mergeUMat(planes, 2, dataset->pupil);
   dataset->pupilSupport = dataset->pupil.clone();
 
   // Initialize FT of reconstructed object with center led image
-  planes[0] =
-      Mat_<double>(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image);
-  cv::sqrt(planes[0], planes[0]); // Convert to amplitude
-  planes[1] = Mat::zeros(dataset->Np, dataset->Np, CV_64F); // No Phase information (yet)
-  merge(planes, 2, complexI); // Complex matricies are stored in NxMx2 matricies
+ // planes[0] =
+//      cv::UMat(dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image);
+
+  dataset->imageStack.at(dataset->sortedIndicies.at(1)).Image.convertTo(tmpMat1,CV_64FC1);
+  cv::sqrt(tmpMat1, planes[0]); // Convert to amplitude
+  planes[1] = cv::UMat::zeros(dataset->Np, dataset->Np, CV_64F); // No Phase information (yet)
+  mergeUMat(planes, 2, complexI); // Complex matricies are stored in NxMx2 matricies
 
   // Compute the fft of the input image (amp only)
   fft2(complexI, complexI);
@@ -324,13 +327,13 @@ void runFPM(FPM_Dataset *dataset) {
   fftShift(complexI, complexI); // Shift to center
 
   // Initialize our final image spectrum
-  planes[0] = Mat::zeros(dataset->Nlarge, dataset->Mlarge, CV_64F);
-  planes[1] = Mat::zeros(dataset->Nlarge, dataset->Mlarge, CV_64F);
-  merge(planes, 2, dataset->objF);
+  planes[0] = cv::UMat::zeros(dataset->Nlarge, dataset->Mlarge, CV_64F);
+  planes[1] = cv::UMat::zeros(dataset->Nlarge, dataset->Mlarge, CV_64F);
+  mergeUMat(planes, 2, dataset->objF);
 
   // Place center LED image in the correct position in the large spectrum
   complexI.copyTo(
-      cv::Mat(dataset->objF, cv::Rect((int16_t)round(dataset->Mlarge / 2) -
+      cv::UMat(dataset->objF, cv::Rect((int16_t)round(dataset->Mlarge / 2) -
                                           (int16_t)round(dataset->Ncrop / 2),
                                       (int16_t)round(dataset->Mlarge / 2) -
                                           (int16_t)round(dataset->Ncrop / 2),
@@ -374,17 +377,18 @@ void runFPM(FPM_Dataset *dataset) {
       // Replace Amplitude (using pointer iteration)
       for (int i = 0; i < dataset->Np; i++) // loop through y
       {
-        const uint16_t *m_i = currImg->Image.ptr<uint16_t>(i); // Input
-        double *o_i = objectAmp.ptr<double>(i);                // Output
+        const uint16_t *m_i = currImg->Image.getMat(ACCESS_RW).ptr<uint16_t>(i); // Input
+        double *o_i = objectAmp.getMat(ACCESS_RW).ptr<double>(i);                // Output
 
         for (int j = 0; j < dataset->Np; j++) {
-          o_i[j * 2] = sqrt((double)m_i[j]); // Reala
+          o_i[j * 2] = sqrt((double)m_i[j]); // Real
           o_i[j * 2 + 1] = 0.0;              // Imaginary
         }
       }
 
       // Update Object fourier transform (preserving phase)
-      complexAbs(currImg->ObjcropP + dataset->eps, tmpMat3);
+      cv::add(currImg->ObjcropP, dataset->eps, tmpMat1);
+      complexAbs(tmpMat1, tmpMat3);
       complexDivide(currImg->ObjcropP, tmpMat3, tmpMat1);
       complexMultiply(tmpMat1, objectAmp, tmpMat3);
       fft2(tmpMat3, currImg->Objfup);
@@ -402,28 +406,31 @@ void runFPM(FPM_Dataset *dataset) {
       complexAbs(dataset->pupil, pupil_abs);
       complexConj(dataset->pupil, pupil_conj);
       complexMultiply(pupil_abs, pupil_conj, tmpMat1);
-      complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
+      cv::subtract(currImg->Objfup, currImg->ObjfcropP,tmpMat2);
+      complexMultiply(tmpMat2, tmpMat1, numerator);
 
       // Denominator
       double p;
       double pupil_abs_max;
       cv::minMaxLoc(pupil_abs, &p, &pupil_abs_max);
       complexMultiply(pupil_abs, pupil_abs, pupil_abs_sq);
-      denomSum = pupil_abs_sq + dataset->delta2;
-      complexDivide(numerator, denomSum * pupil_abs_max, tmpMat2);
+      cv::add(pupil_abs_sq, dataset->delta2, denomSum);
+      cv::multiply(denomSum, pupil_abs_max,tmpMat1);
+      complexDivide(numerator, tmpMat1, tmpMat2);
 
-      if (runDebug) {
+      if (runDebug)
+      {
         showComplexImg((numerator), SHOW_COMPLEX_MAG, "Object update Numerator");
         showComplexImg((tmpMat2), SHOW_COMPLEX_MAG, "Object update Denominator");
       }
 
       fftShift(dataset->objF, objF_centered);
 
-      Mat objF_cropped = cv::Mat(
+      cv::UMat objF_cropped = cv::UMat(
           objF_centered, cv::Rect(currImg->cropXStart, currImg->cropYStart,
                                   dataset->Np, dataset->Np));
       fftShift(tmpMat2, tmpMat2);
-      tmpMat1 = tmpMat2 + objF_cropped;
+      cv::add(tmpMat2, objF_cropped, tmpMat1);
 
       if (runDebug) {
         showComplexImg((objF_cropped), SHOW_COMPLEX_MAG,
@@ -434,7 +441,7 @@ void runFPM(FPM_Dataset *dataset) {
       }
 
       // Replace the region in objF
-      tmpMat1.copyTo(cv::Mat(objF_centered,
+      tmpMat1.copyTo(cv::UMat(objF_centered,
                              cv::Rect(currImg->cropXStart, currImg->cropYStart,
                                       dataset->Np, dataset->Np)));
       fftShift(objF_centered, dataset->objF);
@@ -453,16 +460,19 @@ void runFPM(FPM_Dataset *dataset) {
       complexAbs(dataset->objF, Objf_abs);
       complexConj(currImg->Objfcrop, Objfcrop_conj);
       complexMultiply(Objfcrop_abs, Objfcrop_conj, tmpMat1);
-      complexMultiply(currImg->Objfup - currImg->ObjfcropP, tmpMat1, numerator);
+      cv::subtract(currImg->Objfup, currImg->ObjfcropP, tmpMat2);
+      complexMultiply(tmpMat2, tmpMat1, numerator);
 
       // Denominator
       cv::minMaxLoc(Objf_abs, &p, &Objf_abs_max);
       complexMultiply(Objfcrop_abs, Objfcrop_abs, Objfcrop_abs_sq);
-      denomSum = Objfcrop_abs_sq + dataset->delta1;
-      complexDivide(numerator, denomSum * Objf_abs_max, tmpMat2);
+      cv::add(Objfcrop_abs_sq, dataset->delta1, denomSum);
+      cv::multiply(denomSum,Objf_abs_max,tmpMat1);
+      complexDivide(numerator, tmpMat1, tmpMat2);
       complexMultiply(tmpMat2, dataset->pupilSupport, tmpMat2);
 
-      dataset->pupil += tmpMat2;
+      //dataset->pupil = dataset->pupil + tmpMat2;
+      cv::add(dataset->pupil, tmpMat2, dataset->pupil);
     }
     t2 = clock();
     float diff(((float)t2 - (float)t1) / CLOCKS_PER_SEC);
@@ -537,7 +547,7 @@ int main(int argc, char **argv) {
 
   if (loadImgDebug)
   {
-    Mat img = imread(mDataset.datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH);
+    cv::UMat img = imread(mDataset.datasetRoot + fileName, CV_LOAD_IMAGE_ANYDEPTH).getUMat(ACCESS_READ);
     std::cout << img.size();
     showImg(
     img(cv::Rect(mDataset.cropX, mDataset.cropY, mDataset.Np, mDataset.Np)),
@@ -561,8 +571,17 @@ int main(int argc, char **argv) {
   mDataset.flipIlluminationX = datasetJson.get("flipDatasetX", false).asBool();
   mDataset.flipIlluminationY = datasetJson.get("flipDatasetY", false).asBool();
   mDataset.darkfieldExpMultiplier = datasetJson.get("darkfieldExpMultiplier",1).asInt();
-  runDebug = datasetJson.get("debug",false).asBool();
+  mDataset.holeCoordinateFileName = datasetJson.get("holeCoordinateFileName","null").asString();
   mDataset.holeCoordinates = datasetJson.get("holeCoordinates",0);
+
+  // Load Hole Coordinate Json
+  Json::Value ledPositionsJson;
+  Json::Reader ledReader;
+  ifstream jsonFileLedPositions(mDataset.holeCoordinateFileName);
+  reader.parse(jsonFileLedPositions, ledPositionsJson);
+  std::cout << ledPositionsJson << std::endl;
+
+  runDebug = datasetJson.get("debug",false).asBool();
 
   // Reserve memory for imageStack
   mDataset.imageStack.reserve(mDataset.ledCount);

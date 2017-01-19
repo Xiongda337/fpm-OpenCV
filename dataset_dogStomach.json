@@ -1,5 +1,5 @@
 {
-  "datasetRoot" : "/Users/zfphil/Downloads/DogTissue_FPM/1LED/tif/",
+  "datasetRoot" : "/Users/zfphil/Dropbox/Research/FPM/Website_testing/FPM stained histology slide/1LED/tif/",
   "isColor" : false,
   "pixelSize": 6.5,
   "objectiveMag" : 8.1485,
@@ -9,7 +9,7 @@
   "lambda" : 0.6292,
   "cropSizeX" : 200,
   "cropSizeY" : 200,
-  "filePrefix" : "Iled_",
+  "filePrefix" : "ILED_",
   "fileExtension" : ".tif",
 	"cropX" : 1248,
 	"cropY" : 500,

@@ -18,11 +18,11 @@ using namespace cv;
 
 class FPMimg{
   public:
-        cv::Mat Image;
-        cv::Mat Objfcrop;
-        cv::Mat ObjfcropP;
-        cv::Mat ObjcropP;
-        cv::Mat Objfup;
+        cv::UMat Image;
+        cv::UMat Objfcrop;
+        cv::UMat ObjfcropP;
+        cv::UMat ObjcropP;
+        cv::UMat Objfup;
         int led_num;
         double sinTheta_x;
         double sinTheta_y;
@@ -42,6 +42,7 @@ class FPMimg{
 
 class FPM_Dataset{
   public:
+        std::string           holeCoordinateFileName;
         Json::Value           holeCoordinates;
         std::string           datasetRoot;    // Dataset location, with trailing "\"
         std::string           filePrefix;          // Raw data file header (everything before led #)
@@ -86,12 +87,12 @@ class FPM_Dataset{
         // FPM Specific
         float                 delta1;
         float                 delta2;
-        cv::Mat               obj;                      // Reconstructed object, real space, full res
-        cv::Mat               objCrop;                  // Reconstructed object, real space, cropped
-        cv::Mat               objF;                     // Reconstructed object, Fourier space, full res
-        cv::Mat               objFCrop;                 // Reconstructed object, Fourier space, cropped
-        cv::Mat               pupil;                     // Reconstructed pupil, Fourier Space
-        cv::Mat               pupilSupport;             // Binary mask for pupil support, Fourier space
+        cv::UMat               obj;                      // Reconstructed object, real space, full res
+        cv::UMat               objCrop;                  // Reconstructed object, real space, cropped
+        cv::UMat               objF;                     // Reconstructed object, Fourier space, full res
+        cv::UMat               objFCrop;                 // Reconstructed object, Fourier space, cropped
+        cv::UMat               pupil;                     // Reconstructed pupil, Fourier Space
+        cv::UMat               pupilSupport;             // Binary mask for pupil support, Fourier space
         int16_t               itrCount = 10;            // Iteration Count
         bool                  flipIlluminationX;
         bool                  flipIlluminationY;

@@ -11,19 +11,16 @@ CC=g++
 # define any compile-time flags
 CFLAGS= -std=c++14 -ggdb
 
-# define any directories containing header files other than /usr/include
-#
-INCLUDES = -I/usr/local/include/
+
+INCLUDES = -I/usr/local/include/ -I/opt/local/include
 
 # define library paths in addition to /usr/lib
 #   if I wanted to include libraries not in /usr/lib I'd specify
 #   their path using -Lpath, something like:
-LFLAGS = -L/usr/local/lib
+LFLAGS = -L/usr/local/lib -L/opt/local/lib
 
-# define any libraries to link into executable:
-#   if I want to link in libraries (libx.so or libx.a) I use the -llibname
-#   option, something like (this will link in libmylib.so and libm.so:
-LIBS = -lopencv_core -lopencv_imgproc -lopencv_highgui -lcvComplex -lopencv_contrib
+
+LIBS = -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -lcvComplex
 
 # define the C source files
 SRCS = fpmMain.cpp include/jsoncpp.cpp
